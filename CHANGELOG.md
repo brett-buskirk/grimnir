@@ -28,4 +28,14 @@ All notable changes to grimnir are documented here. The format is based on
   beast configs exist on disk; `config init [--force]` scaffolds grimnir's config with detected
   defaults; `config set <owner|root> <value>` upserts a key; `config edit` opens it in `$EDITOR`;
   `config path` prints the file path. Any key unset here falls back to `~/.config/huginn/config`.
+- **`install`** — the local half of provisioning: symlink each beast script present in
+  `$GRIMNIR_ROOT` into `$GRIMNIR_BIN` (default `~/.local/bin`), check deps (`bash`/`git`/`gh`/`jq`),
+  and scaffold grimnir's config. Idempotent — a correct link is left alone; `--force` relinks a name
+  whose symlink points elsewhere; `--dry-run` previews.
+- **`rally`** — assemble the pack, the one-command onboarding. Clones any of the four beasts
+  (`huginn`/`muninn`/`geri`/`freki`) missing from the estate — from `$GRIMNIR_PACK_OWNER` (default
+  `brett-buskirk`), the canonical pack source, which needn't be your own estate owner — then wires the
+  whole pack up via the same provisioner `install` uses. Idempotent by default (present beasts are
+  reported and left untouched); `--update` fast-forwards present beasts to latest (skipping dirty
+  ones), `--force` repairs stray symlinks, `--dry-run` previews the clone · pull · link plan.
 - Two-level help: `grimnir help` overview + `grimnir <command> help` per-command detail.
