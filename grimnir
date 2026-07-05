@@ -20,6 +20,7 @@ HCONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/huginn/config"
 
 ROOT="${_env_ROOT:-${GRIMNIR_ROOT:-${HUGINN_ROOT:-$HOME/github-repos}}}"
 OWNER="${_env_OWNER:-${GRIMNIR_OWNER:-${HUGINN_OWNER:-}}}"   # each beast resolves this lazily itself
+CONV="$ROOT/${GRIMNIR_CONVENTIONS:-${HUGINN_CONVENTIONS:-repo-conventions}}"   # dir with exemptions.json (shared estate standard)
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   R=$'\e[31m'; G=$'\e[32m'; Y=$'\e[33m'; C=$'\e[36m'; M=$'\e[35m'; DIM=$'\e[2m'; BD=$'\e[1m'; X=$'\e[0m'
@@ -33,6 +34,25 @@ need_deps(){ local d; local -a miss=(); for d in git gh jq; do have "$d" || miss
 # pull the first capture group of a regex out of a block of text — used to lift a headline
 # number back out of a beast's own (already-rendered) summary line
 grab(){ [[ "$2" =~ $1 ]] && printf '%s' "${BASH_REMATCH[1]}" || printf ''; }
+# collapse a leading $HOME back to the literal, so a written config reads like the beasts' configs
+homelit(){ case "$1" in "$HOME"/*) printf '$HOME/%s' "${1#"$HOME"/}";; "$HOME") printf '$HOME';; *) printf '%s' "$1";; esac; }
+# write grimnir's config with detected defaults (shared by 'config init' and 'install')
+write_config(){
+  mkdir -p "$(dirname "$CONFIG")"
+  local o; o="${OWNER:-$(gh api user --jq .login 2>/dev/null)}"
+  cat > "$CONFIG" <<CFG
+# grimnir configuration — https://github.com/brett-buskirk/grimnir
+GRIMNIR_OWNER="$o"
+GRIMNIR_ROOT="$(homelit "$ROOT")"
+CFG
+}
+# set-or-replace a KEY="value" line in the config file (| delimiter dodges path slashes)
+upsert_config(){
+  local key="$1" val="$2" tmp
+  if grep -q "^$key=" "$CONFIG" 2>/dev/null; then
+    tmp="$(mktemp)"; sed "s|^$key=.*|$key=\"$val\"|" "$CONFIG" > "$tmp" && mv "$tmp" "$CONFIG"
+  else printf '%s="%s"\n' "$key" "$val" >> "$CONFIG"; fi
+}
 
 # ── survey (the flagship — one consolidated all-realms briefing) ─────────
 cmd_survey(){
@@ -238,6 +258,100 @@ help_summon(){
   printf "  one 'gh repo list', then one clone or pull per repo.${X}\n\n"
 }
 
+# ── config (front-end for the shared estate config all beasts read) ───────
+cmd_config(){
+  is_help "${1:-}" && { help_config; return 0; }
+  local sub="${1:-show}"; [ $# -gt 0 ] && shift
+  case "$sub" in
+    show)  config_show;;
+    init)  config_init "$@";;
+    set)   config_set "$@";;
+    edit)  config_edit;;
+    path)  printf '%s\n' "$CONFIG";;
+    *)     printf "  ${R}unknown config subcommand: %s${X} ${DIM}(show · init · set · edit · path)${X}\n" "$sub"; return 1;;
+  esac
+}
+
+# the front-end view — resolve the whole shared estate identity in one place
+config_show(){
+  local osrc="detected"
+  if [ -n "${_env_OWNER:-}" ]; then osrc="env GRIMNIR_OWNER"
+  elif [ -n "${GRIMNIR_OWNER:-}" ]; then osrc="grimnir config"
+  elif [ -n "${HUGINN_OWNER:-}" ]; then osrc="huginn config (fallback)"; fi
+  local resolved_owner="$OWNER"; [ -z "$resolved_owner" ] && resolved_owner="$(gh api user --jq .login 2>/dev/null)"
+
+  printf "\n  ${BD}grimnir config${X}  ${DIM}· the shared estate identity every beast reads${X}\n\n"
+  printf "    ${BD}owner${X}   %-28s ${DIM}(%s)${X}\n" "${resolved_owner:-${R}unset${X}}" "$osrc"
+  printf "    ${BD}root${X}    %-28s ${DIM}(%s)${X}\n" "$ROOT" "$([ -d "$ROOT" ] && echo exists || echo missing)"
+  printf "    ${BD}config${X}  %-28s ${DIM}(%s)${X}\n" "$(homelit "$CONFIG")" "$([ -f "$CONFIG" ] && echo exists || echo 'not written — grimnir config init')"
+
+  printf "\n  ${BD}exemptions${X} ${DIM}· repos the beasts skip when acting (not summon/rally)${X}\n"
+  local ej="$CONV/exemptions.json"
+  if [ -f "$ej" ] && have jq; then
+    printf "    ${DIM}source: %s${X}\n" "$(homelit "$ej")"
+    while IFS=$'\t' read -r repo reason; do
+      [ -z "$repo" ] && continue
+      printf "    ${DIM}∙${X} %-28s ${DIM}%s${X}\n" "$repo" "$reason"
+    done < <(jq -r '.exempt[] | "\(.repo)\t\(.reason)"' "$ej" 2>/dev/null)
+  else
+    printf "    ${DIM}none found (looked in %s)${X}\n" "$(homelit "$ej")"
+  fi
+
+  printf "\n  ${BD}beast configs on disk${X}\n    "
+  local b cf
+  for b in huginn muninn geri freki; do
+    cf="${XDG_CONFIG_HOME:-$HOME/.config}/$b/config"
+    if [ -f "$cf" ]; then printf "${G}✓${X} %s   " "$b"; else printf "${DIM}∙ %s${X}   " "$b"; fi
+  done
+  printf "\n\n  ${DIM}each beast reads its own config, then falls back to huginn's for owner/root —\n"
+  printf "  set those once (here or in huginn's config) and the whole pack follows.${X}\n\n"
+}
+
+config_init(){
+  local force=0; [ "${1:-}" = "--force" ] && force=1
+  if [ -f "$CONFIG" ] && [ "$force" = 0 ]; then
+    printf "\n  config already exists → ${C}%s${X}\n  ${DIM}edit it ('grimnir config edit'), or 'grimnir config init --force' to overwrite.${X}\n\n" "$CONFIG"; return 0
+  fi
+  write_config
+  printf "\n  ${G}✓${X} wrote ${C}%s${X}\n\n" "$CONFIG"
+  sed 's/^/    /' "$CONFIG"
+  printf "\n  ${DIM}edit as needed — env vars (GRIMNIR_*) override the file, and any key left unset\n"
+  printf "  falls back to ~/.config/huginn/config.${X}\n\n"
+}
+
+config_set(){
+  local key="${1:-}" val="${2:-}"
+  { [ -z "$key" ] || [ -z "$val" ]; } && { printf "  ${R}usage:${X} grimnir config set <owner|root> <value>\n"; return 1; }
+  [ -f "$CONFIG" ] || write_config
+  case "$key" in
+    owner) upsert_config GRIMNIR_OWNER "$val";;
+    root)  upsert_config GRIMNIR_ROOT "$val";;
+    *)     printf "  ${R}unknown key: %s${X} ${DIM}(owner · root)${X}\n" "$key"; return 1;;
+  esac
+  printf "  ${G}✓${X} set ${BD}%s${X} = %s ${DIM}in %s${X}\n" "$key" "$val" "$(homelit "$CONFIG")"
+}
+
+config_edit(){
+  [ -f "$CONFIG" ] || write_config
+  "${EDITOR:-vi}" "$CONFIG"
+}
+
+help_config(){
+  printf "\n  ${BD}grimnir config${X} [show | init [--force] | set <key> <value> | edit | path]\n\n"
+  printf "  One front-end for the shared estate config every beast reads — owner, root, and the\n"
+  printf "  exemptions the ravens/wolves honor. Grimnir's own config lives at\n"
+  printf "  ${DIM}%s${X}; when a key is unset there, the whole pack (grimnir\n" "$(homelit "$CONFIG")"
+  printf "  included) falls back to ~/.config/huginn/config — so you set the estate identity once.\n\n"
+  printf "  ${BD}Subcommands${X}\n"
+  printf "    show ${DIM}(default)${X}    resolve and print owner · root · config path · exemptions · beast configs\n"
+  printf "    init [--force]    scaffold the config file with detected defaults ${DIM}(like a beast's 'init')${X}\n"
+  printf "    set <k> <v>       set ${BD}owner${X} or ${BD}root${X} in the config file\n"
+  printf "    edit              open the config in \$EDITOR ${DIM}(scaffolds it first if absent)${X}\n"
+  printf "    path              print the config file path\n\n"
+  printf "  ${DIM}Exemptions are read from the conventions repo (%s/exemptions.json) —\n" "$(homelit "$CONV")"
+  printf "  edit them there, since they're the estate-wide standard the beasts share.${X}\n\n"
+}
+
 # ── help ──────────────────────────────────────────────────────────────────
 cmd_help(){
   printf "\n  ${BD}grimnir${X} ${DIM}— the Allfather's high seat · %s${X}\n\n" "$ROOT"
@@ -245,6 +359,8 @@ cmd_help(){
   printf "    ${BD}survey${X}                 one consolidated briefing — present · past · threats · cruft\n"
   printf "  ${DIM}provision${X}\n"
   printf "    ${BD}summon${X} [--update]      clone every repo you own into the estate ${DIM}(--update pulls existing)${X}\n"
+  printf "  ${DIM}configure${X}\n"
+  printf "    ${BD}config${X} [set|edit]      the shared estate config — owner · root · exemptions\n"
   printf "  ${DIM}reference${X}\n"
   printf "    ${BD}help${X}                   this menu\n\n"
   printf "  ${DIM}beasts on PATH:${X}"
@@ -258,6 +374,7 @@ cmd_help(){
 case "${1:-help}" in
   survey) shift; cmd_survey "$@";;
   summon) shift; cmd_summon "$@";;
+  config) shift; cmd_config "$@";;
   help|-h|--help) cmd_help;;
   *) printf "${R}unknown command: %s${X}\n" "$1"; cmd_help; exit 1;;
 esac
