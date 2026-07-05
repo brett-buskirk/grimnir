@@ -21,6 +21,9 @@ HCONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/huginn/config"
 ROOT="${_env_ROOT:-${GRIMNIR_ROOT:-${HUGINN_ROOT:-$HOME/github-repos}}}"
 OWNER="${_env_OWNER:-${GRIMNIR_OWNER:-${HUGINN_OWNER:-}}}"   # each beast resolves this lazily itself
 CONV="$ROOT/${GRIMNIR_CONVENTIONS:-${HUGINN_CONVENTIONS:-repo-conventions}}"   # dir with exemptions.json (shared estate standard)
+BIN="${GRIMNIR_BIN:-$HOME/.local/bin}"                 # where beast scripts get symlinked
+PACK_OWNER="${GRIMNIR_PACK_OWNER:-brett-buskirk}"      # canonical source of the beast repos (not necessarily the estate owner)
+BEASTS="huginn muninn geri freki"                      # the four beasts grimnir commands (grimnir itself is the seat)
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   R=$'\e[31m'; G=$'\e[32m'; Y=$'\e[33m'; C=$'\e[36m'; M=$'\e[35m'; DIM=$'\e[2m'; BD=$'\e[1m'; X=$'\e[0m'
@@ -52,6 +55,64 @@ upsert_config(){
   if grep -q "^$key=" "$CONFIG" 2>/dev/null; then
     tmp="$(mktemp)"; sed "s|^$key=.*|$key=\"$val\"|" "$CONFIG" > "$tmp" && mv "$tmp" "$CONFIG"
   else printf '%s="%s"\n' "$key" "$val" >> "$CONFIG"; fi
+}
+
+# ── pack provisioning (shared by install & rally) ─────────────────────────
+# print the dep line; return non-zero if any of bash/git/gh/jq is missing
+deps_report(){
+  local d miss=0
+  printf "  ${BD}deps${X}  "
+  for d in bash git gh jq; do
+    if have "$d"; then printf "${G}✓${X} %s  " "$d"; else printf "${R}✗ %s${X}  " "$d"; miss=1; fi
+  done
+  printf "\n"
+  return "$miss"
+}
+# symlink one pack member's script into $BIN. Prints a status line; return buckets the outcome:
+#   0 linked (new) · 1 already linked · 2 absent (no repo) · 3 conflict (points elsewhere) · 4 failed
+link_one(){
+  local name="$1" dry="$2" force="$3"
+  local script="$ROOT/$name/$name" link="$BIN/$name" tgt
+  [ -f "$script" ] || { printf "    ${DIM}∙ %-8s repo not in estate — skipping${X}\n" "$name"; return 2; }
+  if [ -L "$link" ] || [ -e "$link" ]; then
+    tgt="$(readlink -f "$link" 2>/dev/null)"
+    if [ "$tgt" = "$(readlink -f "$script")" ]; then
+      printf "    ${G}✓${X} %-8s ${DIM}already linked${X}\n" "$name"; return 1
+    fi
+    if [ "$force" != 1 ]; then
+      printf "    ${Y}▲${X} %-8s ${DIM}%s exists → %s (pass --force to relink)${X}\n" "$name" "$(homelit "$link")" "${tgt:-?}"; return 3
+    fi
+  fi
+  if [ "$dry" = 1 ]; then
+    printf "    ${C}+ would link${X} %-8s ${DIM}→ %s${X}\n" "$name" "$(homelit "$script")"; return 0
+  fi
+  mkdir -p "$BIN"
+  if ln -sf "$script" "$link"; then
+    printf "    ${G}✓ linked${X}   %-8s ${DIM}→ %s${X}\n" "$name" "$(homelit "$script")"; return 0
+  fi
+  printf "    ${R}✗ failed to link %s${X}\n" "$name"; return 4
+}
+# the local wiring — deps · symlink the pack · scaffold config · PATH note. Tallies into P_* globals.
+provision(){
+  local dry="$1" force="$2" name rc
+  deps_report || printf "    ${Y}install the missing tool(s) before the pack will fully work${X}\n"
+  printf "\n  ${BD}link${X} ${DIM}(symlink each present script → %s)${X}\n" "$(homelit "$BIN")"
+  P_LINKED=0; P_ALREADY=0; P_ABSENT=0; P_CONFLICT=0; P_FAILED=0
+  for name in grimnir $BEASTS; do
+    link_one "$name" "$dry" "$force"; rc=$?
+    case "$rc" in
+      0) P_LINKED=$((P_LINKED+1));; 1) P_ALREADY=$((P_ALREADY+1));; 2) P_ABSENT=$((P_ABSENT+1));;
+      3) P_CONFLICT=$((P_CONFLICT+1));; 4) P_FAILED=$((P_FAILED+1));;
+    esac
+  done
+  printf "\n  ${BD}config${X}\n"
+  if [ -f "$CONFIG" ]; then printf "    ${G}✓${X} %s ${DIM}(exists)${X}\n" "$(homelit "$CONFIG")"
+  elif [ "$dry" = 1 ]; then printf "    ${C}+ would scaffold %s${X}\n" "$(homelit "$CONFIG")"
+  else write_config && printf "    ${G}✓${X} scaffolded %s\n" "$(homelit "$CONFIG")"; fi
+  case ":$PATH:" in
+    *":$BIN:"*) : ;;
+    *) printf "\n  ${Y}note:${X} %s is not on your \$PATH — add it so the pack is callable.\n" "$(homelit "$BIN")";;
+  esac
 }
 
 # ── survey (the flagship — one consolidated all-realms briefing) ─────────
@@ -352,12 +413,132 @@ help_config(){
   printf "  edit them there, since they're the estate-wide standard the beasts share.${X}\n\n"
 }
 
+# ── install (wire the present pack into ~/.local/bin) ──────────────────────
+cmd_install(){
+  is_help "${1:-}" && { help_install; return 0; }
+  local DRY=0 FORCE=0
+  for a in "$@"; do case "$a" in
+    --dry-run|-n) DRY=1;; --force|-f) FORCE=1;;
+    -*) printf "  ${Y}ignoring unknown option: %s${X}\n" "$a";;
+  esac; done
+
+  printf "\n  ${BD}grimnir install${X}  ${DIM}· wire the pack into %s%s${X}\n\n" \
+    "$(homelit "$BIN")" "$([ "$DRY" = 1 ] && echo ' · dry-run')"
+  provision "$DRY" "$FORCE"
+
+  printf "\n  ${BD}%d linked${X} ${DIM}·${X} ${G}%d already${X} ${DIM}·${X} ${DIM}%d absent${X}" "$P_LINKED" "$P_ALREADY" "$P_ABSENT"
+  [ "$P_CONFLICT" -gt 0 ] && printf " ${DIM}·${X} ${Y}%d conflict%s${X}" "$P_CONFLICT" "$(plural "$P_CONFLICT")"
+  [ "$P_FAILED" -gt 0 ] && printf " ${DIM}·${X} ${R}%d failed${X}" "$P_FAILED"
+  printf "\n"
+  [ "$P_CONFLICT" -gt 0 ] && printf "  ${DIM}%d link%s point elsewhere — 'grimnir install --force' relinks them to the estate${X}\n" "$P_CONFLICT" "$(plural "$P_CONFLICT")"
+  [ "$P_ABSENT" -gt 0 ] && printf "  ${DIM}%d beast%s not in the estate — 'grimnir rally' fetches the missing ones${X}\n" "$P_ABSENT" "$(plural "$P_ABSENT")"
+  printf "\n"
+}
+
+# ── rally (assemble the pack — fetch the missing beasts, then wire them up) ─
+cmd_rally(){
+  is_help "${1:-}" && { help_rally; return 0; }
+  need_deps || return 1
+  local DRY=0 FORCE=0 UPDATE=0
+  for a in "$@"; do case "$a" in
+    --dry-run|-n) DRY=1;; --force|-f) FORCE=1;; --update|-u) UPDATE=1;;
+    -*) printf "  ${Y}ignoring unknown option: %s${X}\n" "$a";;
+  esac; done
+
+  printf "\n  ${BD}grimnir rally${X}  ${DIM}· assemble the pack · %s → %s%s${X}\n" \
+    "$PACK_OWNER" "$ROOT" "$([ "$DRY" = 1 ] && echo ' · dry-run')"
+  printf "  ${DIM}(network — clones any missing beast%s, then wires the pack up)${X}\n\n" \
+    "$([ "$UPDATE" = 1 ] && echo ' and pulls the present ones')"
+
+  printf "  ${BD}the pack${X} ${DIM}(fetch from %s)${X}\n" "$PACK_OWNER"
+  local name cloned=0 present=0 updated=0 dirty=0 prob=0
+  for name in $BEASTS; do
+    local GD="$ROOT/$name"
+    if [ ! -d "$GD/.git" ]; then
+      if [ "$DRY" = 1 ]; then
+        printf "    ${C}+ would clone${X} %-8s ${DIM}(%s/%s)${X}\n" "$name" "$PACK_OWNER" "$name"; cloned=$((cloned+1))
+      elif gh repo clone "$PACK_OWNER/$name" "$GD" -- -q >/dev/null 2>&1; then
+        printf "    ${G}✓ cloned${X}   %-8s ${DIM}(%s/%s)${X}\n" "$name" "$PACK_OWNER" "$name"; cloned=$((cloned+1))
+      else
+        printf "    ${R}✗ clone failed %s${X} ${DIM}(no %s/%s? network?)${X}\n" "$name" "$PACK_OWNER" "$name"; prob=$((prob+1))
+      fi
+      continue
+    fi
+    # already present — idempotent by default; --update freshens it
+    present=$((present+1))
+    if [ "$UPDATE" != 1 ]; then
+      printf "    ${G}✓${X} %-8s ${DIM}already present${X}\n" "$name"; continue
+    fi
+    if [ -n "$(git -C "$GD" status --porcelain 2>/dev/null)" ]; then
+      printf "    ${Y}∙${X} %-8s ${DIM}dirty — skipped${X}\n" "$name"; dirty=$((dirty+1)); continue
+    fi
+    local def; def=$(git -C "$GD" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##'); def=${def:-main}
+    if [ "$DRY" = 1 ]; then
+      printf "    ${C}↓ would pull${X}  %-8s ${DIM}(%s)${X}\n" "$name" "$def"; updated=$((updated+1)); continue
+    fi
+    git -C "$GD" checkout -q "$def" 2>/dev/null
+    if git -C "$GD" pull -q --ff-only origin "$def" >/dev/null 2>&1; then
+      printf "    ${G}↓ updated${X}  %-8s ${DIM}(%s)${X}\n" "$name" "$def"; updated=$((updated+1))
+    else
+      printf "    ${R}✗ %s (couldn't fast-forward)${X}\n" "$name"; prob=$((prob+1))
+    fi
+  done
+
+  # wire the whole pack up (deps · symlink · config · PATH) — the same provisioner 'install' uses
+  printf "\n"
+  provision "$DRY" "$FORCE"
+
+  printf "\n  ${BD}pack %s${X} ${DIM}·${X} ${G}%d %s${X} ${DIM}·${X} ${G}%d linked${X} ${DIM}·${X} ${DIM}%d already linked${X}" \
+    "$([ "$DRY" = 1 ] && echo 'plan' || echo 'assembled')" \
+    "$cloned" "$([ "$DRY" = 1 ] && echo 'to clone' || echo 'cloned')" "$P_LINKED" "$P_ALREADY"
+  [ "$UPDATE" = 1 ] && printf " ${DIM}·${X} ${G}%d updated${X}" "$updated"
+  [ "$dirty" -gt 0 ] && printf " ${DIM}·${X} ${Y}%d dirty${X}" "$dirty"
+  [ "$P_CONFLICT" -gt 0 ] && printf " ${DIM}·${X} ${Y}%d link conflict%s${X}" "$P_CONFLICT" "$(plural "$P_CONFLICT")"
+  local probs=$((prob + P_FAILED)); [ "$probs" -gt 0 ] && printf " ${DIM}·${X} ${R}%d problem%s${X}" "$probs" "$(plural "$probs")"
+  printf "\n"
+  [ "$P_CONFLICT" -gt 0 ] && printf "  ${DIM}%d link%s point elsewhere — 'grimnir rally --force' relinks them to the estate${X}\n" "$P_CONFLICT" "$(plural "$P_CONFLICT")"
+  [ "$UPDATE" = 0 ] && [ "$present" -gt 0 ] && printf "  ${DIM}%d beast%s already present, left as-is — 'grimnir rally --update' pulls them to latest${X}\n" "$present" "$(plural "$present")"
+  printf "\n"
+}
+
+help_install(){
+  printf "\n  ${BD}grimnir install${X} [--force] [--dry-run]\n\n"
+  printf "  Wire the pack into ${BD}%s${X} — symlink each beast script already present in the\n" "$(homelit "$BIN")"
+  printf "  estate (${DIM}%s/<beast>/<beast>${X}), check deps, and scaffold grimnir's config. Idempotent:\n" "$(homelit "$ROOT")"
+  printf "  a link that's already correct is left alone. This is the ${BD}local${X} half of provisioning —\n"
+  printf "  it links what's on disk; ${BD}grimnir rally${X} fetches the beasts that aren't.\n\n"
+  printf "  ${BD}Options${X}\n"
+  printf "    --force, -f     relink a name whose symlink points somewhere other than the estate\n"
+  printf "    --dry-run, -n   print the plan — what would be linked/scaffolded — and change nothing\n\n"
+  printf "  ${DIM}Symlink target dir is \$GRIMNIR_BIN (default ~/.local/bin); make sure it's on your \$PATH.${X}\n\n"
+}
+
+help_rally(){
+  printf "\n  ${BD}grimnir rally${X} [--update] [--force] [--dry-run]\n\n"
+  printf "  Assemble the pack — the one-command onboarding. Clones any of the four beasts\n"
+  printf "  (${BD}%s${X}) missing from the estate, from ${BD}%s${X}, then wires the whole\n" "$BEASTS" "$PACK_OWNER"
+  printf "  pack up (the same deps/symlink/config step ${BD}install${X} runs). Install grimnir, run\n"
+  printf "  ${BD}grimnir rally${X}, and the suite is ready.\n\n"
+  printf "  ${BD}Idempotent by default${X} — a beast already present is reported and left untouched; only\n"
+  printf "  missing ones are cloned. Nothing is overwritten unless you ask:\n\n"
+  printf "  ${BD}Options${X}\n"
+  printf "    --update, -u    also pull beasts already present to latest — fast-forward only,\n"
+  printf "                    skipping any with uncommitted changes ${DIM}(mirrors 'summon --update')${X}\n"
+  printf "    --force, -f     relink a name whose symlink points somewhere other than the estate\n"
+  printf "    --dry-run, -n   print the whole plan — clone · pull · link — and change nothing\n\n"
+  printf "  ${DIM}The beasts are fetched from \$GRIMNIR_PACK_OWNER (default %s) — the canonical\n" "$PACK_OWNER"
+  printf "  source of the pack, which needn't be your own estate owner. Network — one clone per\n"
+  printf "  missing beast, plus a pull per present beast under --update.${X}\n\n"
+}
+
 # ── help ──────────────────────────────────────────────────────────────────
 cmd_help(){
   printf "\n  ${BD}grimnir${X} ${DIM}— the Allfather's high seat · %s${X}\n\n" "$ROOT"
   printf "  ${DIM}survey the estate${X}\n"
   printf "    ${BD}survey${X}                 one consolidated briefing — present · past · threats · cruft\n"
   printf "  ${DIM}provision${X}\n"
+  printf "    ${BD}rally${X} [--update]       assemble the pack — clone the four beasts + wire them up\n"
+  printf "    ${BD}install${X} [--force]      symlink the present beasts into %s\n" "$(homelit "$BIN")"
   printf "    ${BD}summon${X} [--update]      clone every repo you own into the estate ${DIM}(--update pulls existing)${X}\n"
   printf "  ${DIM}configure${X}\n"
   printf "    ${BD}config${X} [set|edit]      the shared estate config — owner · root · exemptions\n"
@@ -372,9 +553,11 @@ cmd_help(){
 }
 
 case "${1:-help}" in
-  survey) shift; cmd_survey "$@";;
-  summon) shift; cmd_summon "$@";;
-  config) shift; cmd_config "$@";;
+  survey)  shift; cmd_survey "$@";;
+  summon)  shift; cmd_summon "$@";;
+  config)  shift; cmd_config "$@";;
+  install) shift; cmd_install "$@";;
+  rally)   shift; cmd_rally "$@";;
   help|-h|--help) cmd_help;;
   *) printf "${R}unknown command: %s${X}\n" "$1"; cmd_help; exit 1;;
 esac

@@ -28,12 +28,24 @@ git clone git@github.com:brett-buskirk/grimnir.git ~/github-repos/grimnir
 ln -s ~/github-repos/grimnir/grimnir ~/.local/bin/grimnir   # ~/.local/bin must be on your PATH
 ```
 
+Then let grimnir bring down and wire up the rest of the pack for you:
+
+```bash
+grimnir rally      # clone the four beasts + symlink them into ~/.local/bin
+```
+
+`rally` is the one-command onboarding: install grimnir, run `grimnir rally`, and the whole suite
+(huginn/muninn/geri/freki) is cloned from `brett-buskirk` and ready. It's idempotent — a beast
+already present is left untouched; `rally --update` pulls the pack to latest.
+
 ## Commands
 
 ```
 survey the estate
   survey                 one consolidated briefing — present · past · threats · cruft
 provision
+  rally [--update]       assemble the pack — clone the four beasts + wire them up
+  install [--force]      symlink the present beasts into ~/.local/bin
   summon [--update]      clone every repo you own into the estate (--update pulls existing)
 configure
   config [set|edit]      the shared estate config — owner · root · exemptions
@@ -55,6 +67,13 @@ Run **`grimnir <command> help`** for details and options on any command.
   uncommitted changes). Cloning is additive, so there's no `--apply` gate; updating is opt-in so a
   summon never disturbs unpushed work. Exemptions govern *management*, not *presence* — summon brings
   down everything you own, even repos the ravens/wolves skip when acting.
+- **`rally`** assembles the pack — clones any of the four beasts missing from `$GRIMNIR_ROOT` (from
+  `$GRIMNIR_PACK_OWNER`, default `brett-buskirk`), then runs the same wiring `install` does. Idempotent
+  by default (present beasts are left alone); `--update` fast-forwards them, `--force` repairs a
+  symlink pointing elsewhere.
+- **`install`** is the local half of provisioning — symlinks each beast script already present in the
+  estate into `$GRIMNIR_BIN` (default `~/.local/bin`), checks deps, and scaffolds grimnir's config.
+  Idempotent; `rally` builds on it by fetching what's missing first.
 - **`config`** is one front-end for the shared estate identity every beast reads — `config show`
   resolves owner, root, exemptions, and which beast configs exist; `config init` / `set` / `edit`
   manage grimnir's own config file. Any key left unset falls back to huginn's config, so you set the
