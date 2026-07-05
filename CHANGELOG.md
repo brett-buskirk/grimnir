@@ -38,4 +38,12 @@ All notable changes to grimnir are documented here. The format is based on
   whole pack up via the same provisioner `install` uses. Idempotent by default (present beasts are
   reported and left untouched); `--update` fast-forwards present beasts to latest (skipping dirty
   ones), `--force` repairs stray symlinks, `--dry-run` previews the clone · pull · link plan.
+- **`version`** — every pack member's version at a glance (grimnir + the four beasts), read from each
+  repo's latest git tag (newest by semver); shows `+N since` for commits past the last tag, `(dev)` for
+  an untagged repo, and marks any not in the estate. No stored version string — derived from tags.
+- **`doctor`** (self) — health-check the pack *itself*, distinct from `huginn doctor` (which audits
+  repos). Reports deps (`bash`/`git`/`gh`/`jq`), `gh` auth + active account, grimnir config presence
+  (or huginn-config fallback), whether `$GRIMNIR_BIN` is on `$PATH`, and a per-member table: in the
+  estate · version · on `PATH` and linked back to the estate. Flags a symlink pointing elsewhere
+  (repair: `install --force`) or a beast missing entirely (fetch: `rally`).
 - Two-level help: `grimnir help` overview + `grimnir <command> help` per-command detail.
