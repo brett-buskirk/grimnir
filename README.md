@@ -33,6 +33,8 @@ ln -s ~/github-repos/grimnir/grimnir ~/.local/bin/grimnir   # ~/.local/bin must 
 ```
 survey the estate
   survey                 one consolidated briefing — present · past · threats · cruft
+provision
+  summon [--update]      clone every repo you own into the estate (--update pulls existing)
 reference
   help                   this menu
 ```
@@ -46,6 +48,11 @@ Run **`grimnir <command> help`** for details and options on any command.
   synthesizes a top-line `estate:` headline (dirty repos, compliance gaps, open alerts, reapable
   cruft) from their own output. A beast missing from `PATH` is skipped with a quiet note rather than
   failing the whole survey.
+- **`summon`** gathers the realms — `gh repo list` every repo you own, clone the ones missing from
+  `$GRIMNIR_ROOT`, and (with `--update`) fast-forward the ones already there (skipping any with
+  uncommitted changes). Cloning is additive, so there's no `--apply` gate; updating is opt-in so a
+  summon never disturbs unpushed work. Exemptions govern *management*, not *presence* — summon brings
+  down everything you own, even repos the ravens/wolves skip when acting.
 - **Graceful degradation is the whole design** — grimnir is useful with only one beast installed,
   and gets more useful as you add the rest.
 - **Respects `NO_COLOR`** and non-TTY output.
@@ -65,9 +72,8 @@ automatically.
 
 ## Roadmap
 
-The phased build-out — `summon` (clone/update the whole estate), pack governance (`install` ·
-`config` · `doctor` · `version`), a daily `brief`, and scheduled routines — is tracked in
-[ROADMAP.md](ROADMAP.md).
+The phased build-out — pack governance (`install` · `config` · `doctor` · `version`), a daily
+`brief`, and scheduled routines — is tracked in [ROADMAP.md](ROADMAP.md).
 
 ## License
 

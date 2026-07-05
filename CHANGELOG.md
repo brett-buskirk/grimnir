@@ -17,4 +17,10 @@ All notable changes to grimnir are documented here. The format is based on
   `GRIMNIR_ROOT`. Config lives at `~/.config/grimnir/config`. Falls back to
   `~/.config/huginn/config`'s `HUGINN_ROOT`/`HUGINN_OWNER` when its own config is unset, so a huginn
   user gets a working grimnir with zero setup.
+- **`summon`** — gather the realms: `gh repo list` every repo you own, clone the ones missing from
+  `$GRIMNIR_ROOT`, and (with `--update`) fast-forward the ones already present, skipping any with
+  uncommitted changes (mirrors `huginn sync`). Flags: `--update`/`-u`, `--skip-archived`,
+  `--skip-forks`, `--limit N`, `--dry-run`/`-n`. Cloning is additive/safe — no `--apply` gate;
+  updating is opt-in so a summon never disturbs unpushed work. Exemptions govern management, not
+  presence: summon brings down everything you own, even repos the ravens/wolves skip when acting.
 - Two-level help: `grimnir help` overview + `grimnir <command> help` per-command detail.
