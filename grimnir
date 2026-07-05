@@ -28,6 +28,8 @@ else R=; G=; Y=; C=; M=; DIM=; BD=; X=; fi
 is_help(){ case "${1:-}" in help|-h|--help) return 0;; *) return 1;; esac; }
 have(){ command -v "$1" >/dev/null 2>&1; }
 plural(){ [ "${1:-0}" = 1 ] && printf '' || printf 's'; }
+need_owner(){ [ -n "$OWNER" ] && return 0; OWNER="$(gh api user --jq .login 2>/dev/null)"; [ -n "$OWNER" ] && return 0; printf "  ${R}no GitHub owner set.${X} Set GRIMNIR_OWNER, add it to %s, or set HUGINN_OWNER in ~/.config/huginn/config.\n" "$CONFIG" >&2; return 1; }
+need_deps(){ local d; local -a miss=(); for d in git gh jq; do have "$d" || miss+=("$d"); done; [ ${#miss[@]} -eq 0 ] && return 0; printf "  ${R}missing required tool(s): %s${X} ${DIM}(grimnir needs bash, git, gh, jq)${X}\n" "${miss[*]}" >&2; return 1; }
 # pull the first capture group of a regex out of a block of text — used to lift a headline
 # number back out of a beast's own (already-rendered) summary line
 grab(){ [[ "$2" =~ $1 ]] && printf '%s' "${BASH_REMATCH[1]}" || printf ''; }
@@ -124,11 +126,125 @@ help_survey(){
   printf "  geri hunt, freki reap); a full sweep can take a minute or two on a big estate.${X}\n\n"
 }
 
+# ── summon (clone-or-update every owned repo into the estate) ─────────────
+# Exemptions govern management (what the beasts touch), NOT presence — summon
+# deliberately brings down everything you own; it never consults is_exempt.
+cmd_summon(){
+  is_help "${1:-}" && { help_summon; return 0; }
+  need_deps || return 1
+  local UPDATE=0 DRY=0 SKIP_ARCHIVED=0 SKIP_FORKS=0 LIMIT=1000
+  while [ $# -gt 0 ]; do case "$1" in
+    --update|-u)     UPDATE=1;;
+    --dry-run|-n)    DRY=1;;
+    --skip-archived) SKIP_ARCHIVED=1;;
+    --skip-forks)    SKIP_FORKS=1;;
+    --limit)         shift; LIMIT="${1:-1000}";;
+    -*)              printf "  ${Y}ignoring unknown option: %s${X}\n" "$1";;
+    *)               printf "  ${Y}ignoring unexpected argument: %s${X}\n" "$1";;
+  esac; shift; done
+  need_owner || return 1
+
+  printf "\n  ${BD}grimnir summon${X}  ${DIM}· gather the realms · %s → %s%s${X}\n" \
+    "$OWNER" "$ROOT" "$([ "$DRY" = 1 ] && echo ' · dry-run')"
+  printf "  ${DIM}(network — lists every repo you own, clones the missing ones%s)${X}\n\n" \
+    "$([ "$UPDATE" = 1 ] && echo ', pulls the present ones')"
+
+  local rows
+  rows="$(gh repo list "$OWNER" --limit "$LIMIT" --json name,isArchived,isFork,visibility \
+    --jq '.[] | [.name,(.isArchived|tostring),(.isFork|tostring),.visibility] | @tsv' 2>/dev/null | sort)"
+  if [ -z "$rows" ]; then
+    printf "  ${R}couldn't list repos for %s${X} ${DIM}(network / gh auth?)${X}\n\n" "$OWNER"; return 1
+  fi
+
+  local owned=0 cloned=0 updated=0 present=0 filtered=0 dirty=0 prob=0
+  local name arch fork vis
+  while IFS=$'\t' read -r name arch fork vis; do
+    [ -z "$name" ] && continue
+    owned=$((owned+1))
+    if [ "$SKIP_ARCHIVED" = 1 ] && [ "$arch" = true ]; then
+      printf "  ${DIM}∙ filtered  %-28s (archived)${X}\n" "$name"; filtered=$((filtered+1)); continue
+    fi
+    if [ "$SKIP_FORKS" = 1 ] && [ "$fork" = true ]; then
+      printf "  ${DIM}∙ filtered  %-28s (fork)${X}\n" "$name"; filtered=$((filtered+1)); continue
+    fi
+    local GD="$ROOT/$name"
+
+    if [ ! -d "$GD/.git" ]; then
+      # missing — clone. The default action; always safe/additive.
+      if [ "$DRY" = 1 ]; then
+        printf "  ${C}+ would clone${X} %-28s ${DIM}(%s)${X}\n" "$name" "$vis"; cloned=$((cloned+1))
+      elif gh repo clone "$OWNER/$name" "$GD" -- -q >/dev/null 2>&1; then
+        printf "  ${G}✓ cloned${X}     %-28s ${DIM}(%s)${X}\n" "$name" "$vis"; cloned=$((cloned+1))
+      else
+        printf "  ${R}✗ clone failed %s${X}\n" "$name"; prob=$((prob+1))
+      fi
+      continue
+    fi
+
+    # present locally
+    present=$((present+1))
+    [ "$UPDATE" != 1 ] && continue   # default: leave existing repos untouched
+
+    # --update: freshen it, mirroring huginn sync (skip dirty, ff-only, never clobber work)
+    if [ -n "$(git -C "$GD" status --porcelain 2>/dev/null)" ]; then
+      printf "  ${Y}∙ dirty${X}      %-28s ${DIM}(skipped — uncommitted changes)${X}\n" "$name"; dirty=$((dirty+1)); continue
+    fi
+    local def; def=$(git -C "$GD" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's#^origin/##'); def=${def:-main}
+    if [ "$DRY" = 1 ]; then
+      printf "  ${C}↓ would pull${X}  %-28s ${DIM}(%s)${X}\n" "$name" "$def"; updated=$((updated+1)); continue
+    fi
+    git -C "$GD" checkout -q "$def" 2>/dev/null
+    if git -C "$GD" pull -q --ff-only origin "$def" >/dev/null 2>&1; then
+      printf "  ${G}↓ updated${X}    %-28s ${DIM}(%s)${X}\n" "$name" "$def"; updated=$((updated+1))
+    else
+      printf "  ${R}✗ %s (couldn't fast-forward)${X}\n" "$name"; prob=$((prob+1))
+    fi
+  done <<< "$rows"
+
+  # summary — wording adapts to dry-run; segments only shown when meaningful
+  local cverb; cverb="$([ "$DRY" = 1 ] && echo 'to clone' || echo 'cloned')"
+  printf "\n  ${BD}%d owned${X} ${DIM}·${X} ${G}%d %s${X}" "$owned" "$cloned" "$cverb"
+  if [ "$UPDATE" = 1 ]; then
+    local uverb; uverb="$([ "$DRY" = 1 ] && echo 'to pull' || echo 'updated')"
+    printf " ${DIM}·${X} ${G}%d %s${X}" "$updated" "$uverb"
+    [ "$dirty" -gt 0 ] && printf " ${DIM}·${X} ${Y}%d dirty skipped${X}" "$dirty"
+  else
+    printf " ${DIM}·${X} ${DIM}%d present${X}" "$present"
+  fi
+  [ "$filtered" -gt 0 ] && printf " ${DIM}·${X} ${DIM}%d filtered${X}" "$filtered"
+  [ "$prob" -gt 0 ] && printf " ${DIM}·${X} ${R}%d problem%s${X}" "$prob" "$(plural "$prob")"
+  printf "\n"
+  [ "$UPDATE" = 0 ] && [ "$present" -gt 0 ] && \
+    printf "  ${DIM}%d repo%s already present, left untouched — 'grimnir summon --update' pulls them too${X}\n" "$present" "$(plural "$present")"
+  printf "\n"
+}
+
+help_summon(){
+  printf "\n  ${BD}grimnir summon${X} [--update] [--skip-archived] [--skip-forks] [--limit N] [--dry-run]\n\n"
+  printf "  Gather the realms — clone every repo you own into the estate. Lists all your repos\n"
+  printf "  (${DIM}gh repo list${X}), clones any that aren't in ${BD}\$GRIMNIR_ROOT${X} yet, and by default leaves\n"
+  printf "  the ones already there untouched. Cloning is additive and safe, so there's no\n"
+  printf "  ${BD}--apply${X} gate — but ${BD}updating${X} existing repos is opt-in, behind ${BD}--update${X}, so a summon\n"
+  printf "  never disturbs local work you haven't pushed.\n\n"
+  printf "  ${BD}Options${X}\n"
+  printf "    --update, -u     also pull repos already present — fast-forward only, skipping any\n"
+  printf "                     with uncommitted changes ${DIM}(mirrors 'huginn sync')${X}\n"
+  printf "    --skip-archived  don't clone archived repos\n"
+  printf "    --skip-forks     don't clone forks\n"
+  printf "    --limit N        cap how many repos to list ${DIM}(default: 1000)${X}\n"
+  printf "    --dry-run, -n    print the plan — what would be cloned/pulled — and change nothing\n\n"
+  printf "  ${DIM}Exemptions govern management, not presence: summon brings down everything you own,\n"
+  printf "  even repos the ravens/wolves skip when acting (a profile repo, creative repos). Network —\n"
+  printf "  one 'gh repo list', then one clone or pull per repo.${X}\n\n"
+}
+
 # ── help ──────────────────────────────────────────────────────────────────
 cmd_help(){
   printf "\n  ${BD}grimnir${X} ${DIM}— the Allfather's high seat · %s${X}\n\n" "$ROOT"
   printf "  ${DIM}survey the estate${X}\n"
   printf "    ${BD}survey${X}                 one consolidated briefing — present · past · threats · cruft\n"
+  printf "  ${DIM}provision${X}\n"
+  printf "    ${BD}summon${X} [--update]      clone every repo you own into the estate ${DIM}(--update pulls existing)${X}\n"
   printf "  ${DIM}reference${X}\n"
   printf "    ${BD}help${X}                   this menu\n\n"
   printf "  ${DIM}beasts on PATH:${X}"
@@ -141,6 +257,7 @@ cmd_help(){
 
 case "${1:-help}" in
   survey) shift; cmd_survey "$@";;
+  summon) shift; cmd_summon "$@";;
   help|-h|--help) cmd_help;;
   *) printf "${R}unknown command: %s${X}\n" "$1"; cmd_help; exit 1;;
 esac
