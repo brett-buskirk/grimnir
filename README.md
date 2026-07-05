@@ -49,6 +49,9 @@ provision
   summon [--update]      clone every repo you own into the estate (--update pulls existing)
 configure
   config [set|edit]      the shared estate config — owner · root · exemptions
+inspect the pack
+  doctor                 pack health — installed · on PATH · linked · current
+  version                every beast's version, at a glance
 reference
   help                   this menu
 ```
@@ -78,6 +81,11 @@ Run **`grimnir <command> help`** for details and options on any command.
   resolves owner, root, exemptions, and which beast configs exist; `config init` / `set` / `edit`
   manage grimnir's own config file. Any key left unset falls back to huginn's config, so you set the
   estate identity once and the whole pack follows.
+- **`doctor`** / **`version`** inspect the pack *itself* (distinct from `huginn doctor`, which audits
+  your repos). `version` shows each member's version, derived from its latest git tag; `doctor` reports
+  deps, `gh` auth, config, `$PATH`, and per-beast whether it's in the estate, on `PATH`, and linked
+  back to the estate — flagging a stray symlink (repair with `install --force`) or a missing beast
+  (fetch with `rally`).
 - **Graceful degradation is the whole design** — grimnir is useful with only one beast installed,
   and gets more useful as you add the rest.
 - **Respects `NO_COLOR`** and non-TTY output.
@@ -97,8 +105,8 @@ automatically.
 
 ## Roadmap
 
-The phased build-out — pack governance (`install` · `config` · `doctor` · `version`), a daily
-`brief`, and scheduled routines — is tracked in [ROADMAP.md](ROADMAP.md).
+The phased build-out — a daily `brief` of the deltas worth your attention, and scheduled routines —
+is tracked in [ROADMAP.md](ROADMAP.md).
 
 ## License
 

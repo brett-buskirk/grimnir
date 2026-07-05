@@ -114,6 +114,16 @@ provision(){
     *) printf "\n  ${Y}note:${X} %s is not on your \$PATH — add it so the pack is callable.\n" "$(homelit "$BIN")";;
   esac
 }
+# echo "<latest-tag>\x1f<commits-since-tag>" for a pack member; tag empty if untagged.
+# return 1 (no output) when the repo isn't in the estate — derive version from tags, don't store it.
+# \x1f (not a tab) so an empty leading field — an untagged repo — survives 'read' (see muninn's note).
+beast_ver(){
+  local dir="$ROOT/$1"
+  [ -d "$dir/.git" ] || return 1
+  local t ahead=0; t="$(git -C "$dir" tag --sort=-v:refname 2>/dev/null | head -1)"
+  [ -n "$t" ] && ahead="$(git -C "$dir" rev-list --count "$t"..HEAD 2>/dev/null || echo 0)"
+  printf '%s\x1f%s' "$t" "$ahead"
+}
 
 # ── survey (the flagship — one consolidated all-realms briefing) ─────────
 cmd_survey(){
@@ -531,6 +541,94 @@ help_rally(){
   printf "  missing beast, plus a pull per present beast under --update.${X}\n\n"
 }
 
+# ── version (every pack member's version, at a glance) ────────────────────
+cmd_version(){
+  is_help "${1:-}" && { help_version; return 0; }
+  printf "\n  ${BD}grimnir version${X}  ${DIM}· the pack, at a glance${X}\n\n"
+  local name info t ahead
+  for name in grimnir $BEASTS; do
+    if info="$(beast_ver "$name")"; then
+      IFS=$'\x1f' read -r t ahead <<<"$info"
+      if [ -z "$t" ]; then
+        printf "    ${BD}%-8s${X}  ${DIM}(dev)${X}\n" "$name"
+      elif [ "${ahead:-0}" -gt 0 ]; then
+        printf "    ${BD}%-8s${X}  %-8s  ${DIM}+%s since${X}\n" "$name" "$t" "$ahead"
+      else
+        printf "    ${BD}%-8s${X}  %s\n" "$name" "$t"
+      fi
+    else
+      printf "    ${DIM}%-8s  (not in estate)${X}\n" "$name"
+    fi
+  done
+  printf "\n"
+}
+
+# ── doctor (self) — health-check the pack itself, not the repos ───────────
+cmd_doctor(){
+  is_help "${1:-}" && { help_doctor; return 0; }
+  printf "\n  ${BD}grimnir doctor${X}  ${DIM}· pack health — not repo compliance (that's 'huginn doctor')${X}\n\n"
+
+  deps_report || true
+  local acct; acct="$(gh api user --jq .login 2>/dev/null)"
+  if [ -n "$acct" ]; then printf "  ${BD}gh${X}    ${G}✓${X} authenticated as ${BD}%s${X}\n" "$acct"
+  else printf "  ${BD}gh${X}    ${R}✗ not authenticated${X} ${DIM}(gh auth login)${X}\n"; fi
+  if [ -f "$CONFIG" ]; then printf "  ${BD}config${X} ${G}✓${X} %s\n" "$(homelit "$CONFIG")"
+  elif [ -f "$HCONFIG" ]; then printf "  ${BD}config${X} ${Y}∙${X} no grimnir config ${DIM}(falling back to huginn's — 'grimnir config init' to pin it)${X}\n"
+  else printf "  ${BD}config${X} ${Y}∙${X} none ${DIM}('grimnir config init' scaffolds it)${X}\n"; fi
+  case ":$PATH:" in
+    *":$BIN:"*) printf "  ${BD}bin${X}   ${G}✓${X} %s ${DIM}(on PATH)${X}\n" "$(homelit "$BIN")";;
+    *)          printf "  ${BD}bin${X}   ${Y}∙${X} %s ${DIM}(not on PATH — add it)${X}\n" "$(homelit "$BIN")";;
+  esac
+
+  printf "\n  ${BD}the pack${X}\n"
+  local name info t ahead vstr where linked=0 estate=0 offpath=0 absent=0
+  for name in grimnir $BEASTS; do
+    local script="$ROOT/$name/$name"
+    if ! info="$(beast_ver "$name")"; then
+      printf "    ${DIM}∙ %-8s  not in estate${X} ${DIM}(grimnir rally)${X}\n" "$name"; absent=$((absent+1)); continue
+    fi
+    estate=$((estate+1))
+    IFS=$'\x1f' read -r t ahead <<<"$info"; [ -z "$t" ] && t="dev"
+    vstr="$t"; [ "${ahead:-0}" -gt 0 ] && vstr="$t+$ahead"
+    where="$(command -v "$name" 2>/dev/null)"
+    if [ -z "$where" ]; then
+      printf "    ${Y}▲${X} %-8s  %-10s  ${Y}not on PATH${X} ${DIM}(grimnir install)${X}\n" "$name" "$vstr"; offpath=$((offpath+1))
+    elif [ "$(readlink -f "$where" 2>/dev/null)" = "$(readlink -f "$script" 2>/dev/null)" ]; then
+      printf "    ${G}✓${X} %-8s  %-10s  ${DIM}%s${X}\n" "$name" "$vstr" "$(homelit "$where")"; linked=$((linked+1))
+    else
+      printf "    ${Y}▲${X} %-8s  %-10s  ${Y}on PATH, not → estate${X} ${DIM}(%s · grimnir install --force)${X}\n" "$name" "$vstr" "$(homelit "$where")"; offpath=$((offpath+1))
+    fi
+  done
+
+  printf "\n  ${BD}%d of %d linked from the estate${X}" "$linked" "$estate"
+  [ "$offpath" -gt 0 ] && printf " ${DIM}·${X} ${Y}%d not linked${X}" "$offpath"
+  [ "$absent" -gt 0 ]  && printf " ${DIM}·${X} ${DIM}%d absent${X}" "$absent"
+  printf "\n\n"
+}
+
+help_version(){
+  printf "\n  ${BD}grimnir version${X}\n\n"
+  printf "  Every pack member's version at a glance — grimnir and the four beasts, each read from\n"
+  printf "  its latest git tag (newest by semver). A repo with commits since its last tag shows\n"
+  printf "  ${DIM}+N since${X}; one with no tags yet shows ${DIM}(dev)${X}; one not in the estate is marked so.\n\n"
+  printf "  ${DIM}Local — derived from git tags, no stored version string ('derive, don't store',\n"
+  printf "  the same approach as the rest of the pack).${X}\n\n"
+}
+
+help_doctor(){
+  printf "\n  ${BD}grimnir doctor${X}\n\n"
+  printf "  Health-check the ${BD}pack itself${X} — distinct from ${BD}huginn doctor${X}, which audits your repos\n"
+  printf "  against conventions. Reports:\n\n"
+  printf "    ${BD}deps${X}      bash · git · gh · jq present\n"
+  printf "    ${BD}gh${X}        authenticated, and as who\n"
+  printf "    ${BD}config${X}    grimnir's config present (or falling back to huginn's)\n"
+  printf "    ${BD}bin${X}       \$GRIMNIR_BIN is on your \$PATH\n"
+  printf "    ${BD}the pack${X}  per member — in the estate · version · on PATH and linked to the estate\n\n"
+  printf "  A member on PATH but pointing somewhere other than the estate is flagged (repair with\n"
+  printf "  ${BD}grimnir install --force${X}); one missing entirely points you at ${BD}grimnir rally${X}.\n\n"
+  printf "  ${DIM}Local — reads git tags + symlink targets; one 'gh api user' for the auth line.${X}\n\n"
+}
+
 # ── help ──────────────────────────────────────────────────────────────────
 cmd_help(){
   printf "\n  ${BD}grimnir${X} ${DIM}— the Allfather's high seat · %s${X}\n\n" "$ROOT"
@@ -542,6 +640,9 @@ cmd_help(){
   printf "    ${BD}summon${X} [--update]      clone every repo you own into the estate ${DIM}(--update pulls existing)${X}\n"
   printf "  ${DIM}configure${X}\n"
   printf "    ${BD}config${X} [set|edit]      the shared estate config — owner · root · exemptions\n"
+  printf "  ${DIM}inspect the pack${X}\n"
+  printf "    ${BD}doctor${X}                 pack health — installed · on PATH · linked · current\n"
+  printf "    ${BD}version${X}                every beast's version, at a glance\n"
   printf "  ${DIM}reference${X}\n"
   printf "    ${BD}help${X}                   this menu\n\n"
   printf "  ${DIM}beasts on PATH:${X}"
@@ -558,6 +659,8 @@ case "${1:-help}" in
   config)  shift; cmd_config "$@";;
   install) shift; cmd_install "$@";;
   rally)   shift; cmd_rally "$@";;
+  doctor)  shift; cmd_doctor "$@";;
+  version|--version|-V) shift; cmd_version "$@";;
   help|-h|--help) cmd_help;;
   *) printf "${R}unknown command: %s${X}\n" "$1"; cmd_help; exit 1;;
 esac
