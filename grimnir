@@ -1,0 +1,146 @@
+#!/usr/bin/env bash
+# grimnir — the Allfather's high seat. Marshals the estate's beasts (huginn/muninn/geri/freki)
+# from $GRIMNIR_ROOT (default ~/github-repos) into one consolidated view. Odin's byname — "the
+# masked one" — sees into all realms from Hliðskjálf at once. The point is consolidation, not
+# aliasing: every command here does something none of the four beasts can do alone.
+#
+#   grimnir survey | help
+#   run 'grimnir help' for the menu, or 'grimnir <command> help' for per-command detail.
+set -uo pipefail
+SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"; HERE="$(cd "$(dirname "$SELF")" && pwd)"
+
+# ── configuration — env  >  config file  >  huginn's config  >  smart defaults ────────────
+CONFIG="${GRIMNIR_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/grimnir/config}"
+for _v in ROOT OWNER; do eval "_env_$_v=\${GRIMNIR_$_v-}"; done
+[ -f "$CONFIG" ] && . "$CONFIG"
+
+# free config for huginn users — if GRIMNIR_* is unset, fall back to huginn's config
+HCONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/huginn/config"
+[ -f "$HCONFIG" ] && . "$HCONFIG"
+
+ROOT="${_env_ROOT:-${GRIMNIR_ROOT:-${HUGINN_ROOT:-$HOME/github-repos}}}"
+OWNER="${_env_OWNER:-${GRIMNIR_OWNER:-${HUGINN_OWNER:-}}}"   # each beast resolves this lazily itself
+
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  R=$'\e[31m'; G=$'\e[32m'; Y=$'\e[33m'; C=$'\e[36m'; M=$'\e[35m'; DIM=$'\e[2m'; BD=$'\e[1m'; X=$'\e[0m'
+else R=; G=; Y=; C=; M=; DIM=; BD=; X=; fi
+
+is_help(){ case "${1:-}" in help|-h|--help) return 0;; *) return 1;; esac; }
+have(){ command -v "$1" >/dev/null 2>&1; }
+plural(){ [ "${1:-0}" = 1 ] && printf '' || printf 's'; }
+# pull the first capture group of a regex out of a block of text — used to lift a headline
+# number back out of a beast's own (already-rendered) summary line
+grab(){ [[ "$2" =~ $1 ]] && printf '%s' "${BASH_REMATCH[1]}" || printf ''; }
+
+# ── survey (the flagship — one consolidated all-realms briefing) ─────────
+cmd_survey(){
+  is_help "${1:-}" && { help_survey; return 0; }
+  printf "\n  ${BD}grimnir survey${X}  ${DIM}· consolidated estate briefing · %s · %s${X}\n" "$ROOT" "$(date '+%a %b %-d, %H:%M')"
+
+  local any=0
+  local -a headline=()
+
+  # ── present — huginn: state + convention compliance ──────────────────────
+  if have huginn; then
+    any=1
+    printf "\n  ${C}${BD}── present ──${X}\n"
+    local status_out; status_out="$(huginn status 2>&1)"
+    printf '%s\n' "$status_out"
+    local dirty; dirty="$(grab '([0-9]+) dirty' "$status_out")"
+    [ -n "$dirty" ] && [ "$dirty" != 0 ] && headline+=("${dirty} dirty")
+
+    local doctor_out; doctor_out="$(huginn doctor 2>&1)"
+    printf '%s\n' "$doctor_out"
+    local gaps; gaps="$(grab '([0-9]+) with gaps' "$doctor_out")"
+    [ -n "$gaps" ] && [ "$gaps" != 0 ] && headline+=("${gaps} compliance gap$(plural "$gaps")")
+  else
+    printf "\n  ${DIM}huginn not installed — skipping present state${X}\n"
+  fi
+
+  # ── past — muninn: what shipped lately ────────────────────────────────────
+  if have muninn; then
+    any=1
+    printf "\n  ${C}${BD}── past ──${X}\n"
+    muninn digest --since 1w
+  else
+    printf "\n  ${DIM}muninn not installed — skipping past${X}\n"
+  fi
+
+  # ── threats — geri: alerts · deps · actions ───────────────────────────────
+  if have geri; then
+    any=1
+    printf "\n  ${C}${BD}── threats ──${X}\n"
+    local hunt_out; hunt_out="$(geri hunt 2>&1)"
+    printf '%s\n' "$hunt_out"
+    local alerts; alerts="$(grab '([0-9]+) alert' "$hunt_out")"
+    [ -n "$alerts" ] && [ "$alerts" != 0 ] && headline+=("${alerts} alert$(plural "$alerts")")
+  else
+    printf "\n  ${DIM}geri not installed — skipping threats${X}\n"
+  fi
+
+  # ── cruft — freki: the dry-run reap summary ───────────────────────────────
+  if have freki; then
+    any=1
+    printf "\n  ${C}${BD}── cruft ──${X}\n"
+    local reap_out; reap_out="$(freki reap 2>&1)"
+    printf '%s\n' "$reap_out"
+    local reapable; reapable="$(grab '([0-9]+) thing' "$reap_out")"
+    [ -n "$reapable" ] && [ "$reapable" != 0 ] && headline+=("${reapable} reapable")
+  else
+    printf "\n  ${DIM}freki not installed — skipping cruft${X}\n"
+  fi
+
+  if [ "$any" -eq 0 ]; then
+    printf "\n  ${R}no beasts installed${X} ${DIM}— nothing to survey (huginn/muninn/geri/freki all missing from PATH)${X}\n\n"
+    return 0
+  fi
+
+  printf "\n  ${BD}estate:${X}"
+  if [ "${#headline[@]}" -eq 0 ]; then printf "  ${G}all clear${X}\n\n"
+  else
+    local i
+    for i in "${!headline[@]}"; do
+      [ "$i" -gt 0 ] && printf " ${DIM}·${X}"
+      printf " %s" "${headline[$i]}"
+    done
+    printf "\n\n"
+  fi
+}
+
+# ── per-command help ──────────────────────────────────────────────────────
+help_survey(){
+  printf "\n  ${BD}grimnir survey${X}\n\n"
+  printf "  The flagship — one consolidated all-realms briefing, marshaling every installed\n"
+  printf "  beast into a single view:\n\n"
+  printf "    ${BD}present${X}    huginn status (state) + huginn doctor (compliance summary)\n"
+  printf "    ${BD}past${X}       muninn digest --since 1w (what shipped lately)\n"
+  printf "    ${BD}threats${X}    geri hunt (alerts · deps · actions)\n"
+  printf "    ${BD}cruft${X}      freki reap (dry-run cruft summary)\n\n"
+  printf "  Each section runs under a labeled heading; a beast missing from PATH is skipped\n"
+  printf "  with a quiet note rather than failing the whole survey. Closes with a top-line\n"
+  printf "  ${BD}estate:${X} headline synthesized from whatever ran (dirty repos, compliance gaps,\n"
+  printf "  open alerts, reapable cruft) — ${G}all clear${X} when every number is zero.\n\n"
+  printf "  ${DIM}Network — this runs the heaviest command each installed beast has (huginn doctor,\n"
+  printf "  geri hunt, freki reap); a full sweep can take a minute or two on a big estate.${X}\n\n"
+}
+
+# ── help ──────────────────────────────────────────────────────────────────
+cmd_help(){
+  printf "\n  ${BD}grimnir${X} ${DIM}— the Allfather's high seat · %s${X}\n\n" "$ROOT"
+  printf "  ${DIM}survey the estate${X}\n"
+  printf "    ${BD}survey${X}                 one consolidated briefing — present · past · threats · cruft\n"
+  printf "  ${DIM}reference${X}\n"
+  printf "    ${BD}help${X}                   this menu\n\n"
+  printf "  ${DIM}beasts on PATH:${X}"
+  local b; for b in huginn muninn geri freki; do
+    if have "$b"; then printf "  ${G}✓${X} %s" "$b"; else printf "  ${DIM}∙ %s${X}" "$b"; fi
+  done
+  printf "\n\n"
+  printf "  ${DIM}run${X} ${BD}grimnir <command> help${X} ${DIM}for details & options on any command.${X}\n\n"
+}
+
+case "${1:-help}" in
+  survey) shift; cmd_survey "$@";;
+  help|-h|--help) cmd_help;;
+  *) printf "${R}unknown command: %s${X}\n" "$1"; cmd_help; exit 1;;
+esac
