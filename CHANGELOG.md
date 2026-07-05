@@ -23,4 +23,9 @@ All notable changes to grimnir are documented here. The format is based on
   `--skip-forks`, `--limit N`, `--dry-run`/`-n`. Cloning is additive/safe — no `--apply` gate;
   updating is opt-in so a summon never disturbs unpushed work. Exemptions govern management, not
   presence: summon brings down everything you own, even repos the ravens/wolves skip when acting.
+- **`config`** — one front-end for the shared estate config every beast reads. `config show`
+  (default) resolves owner · root · config-path · exemptions (from the conventions repo) · which
+  beast configs exist on disk; `config init [--force]` scaffolds grimnir's config with detected
+  defaults; `config set <owner|root> <value>` upserts a key; `config edit` opens it in `$EDITOR`;
+  `config path` prints the file path. Any key unset here falls back to `~/.config/huginn/config`.
 - Two-level help: `grimnir help` overview + `grimnir <command> help` per-command detail.

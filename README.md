@@ -35,6 +35,8 @@ survey the estate
   survey                 one consolidated briefing — present · past · threats · cruft
 provision
   summon [--update]      clone every repo you own into the estate (--update pulls existing)
+configure
+  config [set|edit]      the shared estate config — owner · root · exemptions
 reference
   help                   this menu
 ```
@@ -53,6 +55,10 @@ Run **`grimnir <command> help`** for details and options on any command.
   uncommitted changes). Cloning is additive, so there's no `--apply` gate; updating is opt-in so a
   summon never disturbs unpushed work. Exemptions govern *management*, not *presence* — summon brings
   down everything you own, even repos the ravens/wolves skip when acting.
+- **`config`** is one front-end for the shared estate identity every beast reads — `config show`
+  resolves owner, root, exemptions, and which beast configs exist; `config init` / `set` / `edit`
+  manage grimnir's own config file. Any key left unset falls back to huginn's config, so you set the
+  estate identity once and the whole pack follows.
 - **Graceful degradation is the whole design** — grimnir is useful with only one beast installed,
   and gets more useful as you add the rest.
 - **Respects `NO_COLOR`** and non-TTY output.
