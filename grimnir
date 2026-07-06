@@ -218,6 +218,143 @@ help_survey(){
   printf "  geri hunt, freki reap); a full sweep can take a minute or two on a big estate.${X}\n\n"
 }
 
+# ── brief / morning (the deltas since last brief — a lean daily digest) ────
+# annotate a metric with its change vs the prior snapshot (▲ up / ▼ down / — flat).
+# empty prev = first run → no annotation. Increases in threats/cruft read as attention (yellow).
+brief_delta(){
+  local prev="$1" cur="$2" d
+  [ -z "$prev" ] && return 0
+  d=$((cur - prev))
+  if   [ "$d" -gt 0 ]; then printf "${Y}▲ +%d${X}" "$d"
+  elif [ "$d" -lt 0 ]; then printf "${G}▼ %d${X}" "$d"
+  else printf "${DIM}—${X}"; fi
+}
+# turn "time since last brief" into a muninn --since window (Nh under 2 days, else Nd); 1d on first run
+brief_window(){
+  local prev="$1" now="$2" secs
+  [ -z "$prev" ] && { printf '1d'; return; }
+  secs=$((now - prev)); [ "$secs" -lt 3600 ] && secs=3600
+  if [ "$secs" -lt 172800 ]; then printf '%dh' $(( secs/3600 + 1 )); else printf '%dd' $(( secs/86400 + 1 )); fi
+}
+cmd_brief(){
+  is_help "${1:-}" && { help_brief; return 0; }
+  local SAVE=1 SINCE=""
+  while [ $# -gt 0 ]; do case "$1" in
+    --no-save)  SAVE=0;;
+    --since)    shift; SINCE="${1:-}";;
+    -*)         printf "  ${Y}ignoring unknown option: %s${X}\n" "$1";;
+    *)          printf "  ${Y}ignoring unexpected argument: %s${X}\n" "$1";;
+  esac; shift; done
+
+  local STATEDIR="${XDG_STATE_HOME:-$HOME/.local/state}/grimnir" STATE
+  STATE="$STATEDIR/brief-state"
+
+  # load the prior snapshot (locals pre-declared so 'set -u' + a partial file are both safe)
+  local GRIMNIR_BRIEF_TS="" GRIMNIR_BRIEF_ALERTS="" GRIMNIR_BRIEF_DEPS="" GRIMNIR_BRIEF_ACTIONS="" GRIMNIR_BRIEF_REAPABLE=""
+  [ -f "$STATE" ] && . "$STATE"
+  local prev_ts="$GRIMNIR_BRIEF_TS" prev_alerts="$GRIMNIR_BRIEF_ALERTS" prev_deps="$GRIMNIR_BRIEF_DEPS"
+  local prev_actions="$GRIMNIR_BRIEF_ACTIONS" prev_reap="$GRIMNIR_BRIEF_REAPABLE"
+
+  local now prevdate; now="$(date +%s)"
+  prevdate="$([ -n "$prev_ts" ] && date -d "@$prev_ts" '+%a %b %-d' || echo 'first run')"
+  printf "\n  ${BD}grimnir brief${X}  ${DIM}· deltas since %s · %s${X}\n" "$prevdate" "$(date '+%a %b %-d, %H:%M')"
+
+  # current values start at the prior — so a beast that's absent this run keeps its baseline
+  local cur_alerts="$prev_alerts" cur_deps="$prev_deps" cur_actions="$prev_actions" cur_reap="$prev_reap"
+  local any=0; local -a headline=()
+
+  # ── threats (geri) ── parse the counts off geri hunt's summary line, not the per-repo rows
+  if have geri; then
+    any=1
+    local hunt sumline; hunt="$(geri hunt 2>&1)"
+    sumline="$(printf '%s\n' "$hunt" | grep 'unpinned action' | tail -1)"
+    cur_alerts="$(grab '([0-9]+) alert' "$sumline")"; : "${cur_alerts:=0}"
+    cur_deps="$(grab '([0-9]+) outdated dep signal' "$sumline")"; : "${cur_deps:=0}"
+    cur_actions="$(grab '([0-9]+) unpinned action' "$sumline")"; : "${cur_actions:=0}"
+    printf "\n  ${C}${BD}── threats ──${X}\n"
+    printf "    ${BD}alerts${X}   %4s   %s\n" "$cur_alerts"  "$(brief_delta "$prev_alerts"  "$cur_alerts")"
+    printf "    ${BD}deps${X}     %4s   %s\n" "$cur_deps"    "$(brief_delta "$prev_deps"    "$cur_deps")"
+    printf "    ${BD}actions${X}  %4s   %s\n" "$cur_actions" "$(brief_delta "$prev_actions" "$cur_actions")"
+    if [ -n "$prev_alerts" ]; then
+      local da=$((cur_alerts - prev_alerts));   [ "$da" -gt 0 ] && headline+=("${da} new alert$(plural "$da")")
+      local dd=$(( (cur_deps - prev_deps) + (cur_actions - prev_actions) )); [ "$dd" -gt 0 ] && headline+=("${dd} fresh drift")
+    fi
+  else
+    printf "\n  ${DIM}geri not installed — skipping threats${X}\n"
+  fi
+
+  # ── cruft (freki) ──
+  if have freki; then
+    any=1
+    local reap; reap="$(freki reap 2>&1)"
+    cur_reap="$(grab '([0-9]+) thing' "$reap")"; : "${cur_reap:=0}"
+    printf "\n  ${C}${BD}── cruft ──${X}\n"
+    printf "    ${BD}reapable${X} %4s   %s\n" "$cur_reap" "$(brief_delta "$prev_reap" "$cur_reap")"
+    if [ -n "$prev_reap" ]; then
+      local dr=$((cur_reap - prev_reap)); [ "$dr" -gt 0 ] && headline+=("${dr} more reapable")
+    fi
+  else
+    printf "\n  ${DIM}freki not installed — skipping cruft${X}\n"
+  fi
+
+  # ── shipped (muninn) ── the window since your last brief (override with --since)
+  if have muninn; then
+    any=1
+    local win="$SINCE"; [ -z "$win" ] && win="$(brief_window "$prev_ts" "$now")"
+    printf "\n  ${C}${BD}── shipped ──${X} ${DIM}(since %s)${X}\n" "$win"
+    muninn digest --since "$win"
+  else
+    printf "\n  ${DIM}muninn not installed — skipping shipped${X}\n"
+  fi
+
+  if [ "$any" -eq 0 ]; then
+    printf "\n  ${R}no beasts installed${X} ${DIM}— nothing to brief (geri/freki/muninn all missing)${X}\n\n"
+    return 0
+  fi
+
+  # ── headline ──
+  printf "\n  ${BD}brief:${X}"
+  if [ -z "$prev_ts" ]; then printf "  ${DIM}baseline saved — deltas start next run${X}"
+  elif [ "${#headline[@]}" -eq 0 ]; then printf "  ${G}all quiet since %s${X}" "$prevdate"
+  else local i; for i in "${!headline[@]}"; do [ "$i" -gt 0 ] && printf " ${DIM}·${X}"; printf " %s" "${headline[$i]}"; done; fi
+  printf "\n"
+
+  # ── save the new snapshot (unless peeking) ──
+  if [ "$SAVE" = 1 ]; then
+    mkdir -p "$STATEDIR"
+    cat > "$STATE" <<EOF_STATE
+GRIMNIR_BRIEF_TS=$now
+GRIMNIR_BRIEF_ALERTS=${cur_alerts:-0}
+GRIMNIR_BRIEF_DEPS=${cur_deps:-0}
+GRIMNIR_BRIEF_ACTIONS=${cur_actions:-0}
+GRIMNIR_BRIEF_REAPABLE=${cur_reap:-0}
+EOF_STATE
+  else
+    printf "  ${DIM}--no-save: baseline left at %s${X}\n" "$prevdate"
+  fi
+  printf "\n"
+}
+
+help_brief(){
+  printf "\n  ${BD}grimnir brief${X} [--since <window>] [--no-save]  ${DIM}(alias: morning)${X}\n\n"
+  printf "  A lean daily digest — what ${BD}changed${X} since your last brief, not the whole estate\n"
+  printf "  (${BD}grimnir survey${X} is the full view). Runs the fast-moving beasts and diffs their\n"
+  printf "  numbers against a saved snapshot:\n\n"
+  printf "    ${BD}threats${X}  geri — alerts · dep/action drift ${DIM}(${X}${Y}▲${X}${DIM} up · ${X}${G}▼${X}${DIM} down since last brief)${X}\n"
+  printf "    ${BD}cruft${X}    freki — reapable count, and whether it grew\n"
+  printf "    ${BD}shipped${X}  muninn digest for the window since your last brief\n\n"
+  printf "  Closes with a headline of what's new; ${G}all quiet${X} when nothing moved. The first run\n"
+  printf "  saves a baseline (no deltas yet); a beast that's absent is skipped and keeps its prior\n"
+  printf "  snapshot value. Built to run each morning — from cron, or by hand.\n\n"
+  printf "  ${BD}Options${X}\n"
+  printf "    --since <window>  override the 'shipped' window (e.g. 1d, 3d, 1w); default is the\n"
+  printf "                      elapsed time since your last brief\n"
+  printf "    --no-save         peek without advancing the baseline (deltas stay measured from\n"
+  printf "                      the same point next time)\n\n"
+  printf "  ${DIM}State: \${XDG_STATE_HOME:-~/.local/state}/grimnir/brief-state. Network — a geri hunt +\n"
+  printf "  freki reap + muninn digest, the same cost class as survey.${X}\n\n"
+}
+
 # ── agent doc (seat an operator at the estate root — summon --agent) ──────
 # render the bundled AGENTS.md template, filling in what grimnir already knows.
 # uses globals AG_* set by write_agent_doc; only the installed beasts are named.
@@ -709,6 +846,7 @@ cmd_help(){
   printf "\n  ${BD}grimnir${X} ${DIM}— the Allfather's high seat · %s${X}\n\n" "$ROOT"
   printf "  ${DIM}survey the estate${X}\n"
   printf "    ${BD}survey${X}                 one consolidated briefing — present · past · threats · cruft\n"
+  printf "    ${BD}brief${X}                  the deltas since your last brief — a lean morning digest\n"
   printf "  ${DIM}provision${X}\n"
   printf "    ${BD}rally${X} [--update]       assemble the pack — clone the four beasts + wire them up\n"
   printf "    ${BD}install${X} [--force]      symlink the present beasts into %s\n" "$(homelit "$BIN")"
@@ -730,6 +868,7 @@ cmd_help(){
 
 case "${1:-help}" in
   survey)  shift; cmd_survey "$@";;
+  brief|morning) shift; cmd_brief "$@";;
   summon)  shift; cmd_summon "$@";;
   config)  shift; cmd_config "$@";;
   install) shift; cmd_install "$@";;
