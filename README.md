@@ -46,7 +46,7 @@ survey the estate
 provision
   rally [--update]       assemble the pack — clone the four beasts + wire them up
   install [--force]      symlink the present beasts into ~/.local/bin
-  summon [--update]      clone every repo you own into the estate (--update pulls existing)
+  summon [--agent]       clone every repo you own into the estate (--agent seats an operator)
 configure
   config [set|edit]      the shared estate config — owner · root · exemptions
 inspect the pack
@@ -70,6 +70,12 @@ Run **`grimnir <command> help`** for details and options on any command.
   uncommitted changes). Cloning is additive, so there's no `--apply` gate; updating is opt-in so a
   summon never disturbs unpushed work. Exemptions govern *management*, not *presence* — summon brings
   down everything you own, even repos the ravens/wolves skip when acting.
+  - **`summon --agent`** seats an operator in the high seat: after summoning, it writes an estate-root
+    `AGENTS.md` — an agent-agnostic steward briefing personalized to your owner, root, and *installed*
+    beasts — plus a one-line `CLAUDE.md` (`@AGENTS.md`) so Claude Code picks it up too. Open an agent
+    session at the estate root and it already knows the lay of the land. Idempotent: an existing
+    `AGENTS.md` is never clobbered without `--force`. Template: bundled `templates/AGENTS.md`,
+    overridable at `<conventions>/templates/AGENTS.md`. `--agent=agents|claude|both` (default `both`).
 - **`rally`** assembles the pack — clones any of the four beasts missing from `$GRIMNIR_ROOT` (from
   `$GRIMNIR_PACK_OWNER`, default `brett-buskirk`), then runs the same wiring `install` does. Idempotent
   by default (present beasts are left alone); `--update` fast-forwards them, `--force` repairs a

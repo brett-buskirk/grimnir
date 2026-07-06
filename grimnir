@@ -37,6 +37,7 @@ need_deps(){ local d; local -a miss=(); for d in git gh jq; do have "$d" || miss
 # pull the first capture group of a regex out of a block of text — used to lift a headline
 # number back out of a beast's own (already-rendered) summary line
 grab(){ [[ "$2" =~ $1 ]] && printf '%s' "${BASH_REMATCH[1]}" || printf ''; }
+first_of(){ local f; for f in "$@"; do [ -e "$f" ] && { printf '%s' "$f"; return 0; }; done; return 1; }  # your file, else the bundled one
 # collapse a leading $HOME back to the literal, so a written config reads like the beasts' configs
 homelit(){ case "$1" in "$HOME"/*) printf '$HOME/%s' "${1#"$HOME"/}";; "$HOME") printf '$HOME';; *) printf '%s' "$1";; esac; }
 # write grimnir's config with detected defaults (shared by 'config init' and 'install')
@@ -217,22 +218,84 @@ help_survey(){
   printf "  geri hunt, freki reap); a full sweep can take a minute or two on a big estate.${X}\n\n"
 }
 
+# ── agent doc (seat an operator at the estate root — summon --agent) ──────
+# render the bundled AGENTS.md template, filling in what grimnir already knows.
+# uses globals AG_* set by write_agent_doc; only the installed beasts are named.
+render_agents(){
+  local content; content="$(cat "$1")"
+  content="${content//<OWNER>/$AG_OWNER}"
+  content="${content//<ROOT>/$AG_ROOT}"
+  content="${content//<CONVENTIONS>/$AG_CONV}"
+  content="${content//<BEASTS>/$AG_BEASTS}"
+  printf '%s\n' "$content"
+}
+# write $ROOT/AGENTS.md (canonical) + a $ROOT/CLAUDE.md '@AGENTS.md' shim. mode: agents|claude|both.
+# Never clobbers an existing AGENTS.md or a custom CLAUDE.md without --force (summon's safety ethos).
+write_agent_doc(){
+  local dry="$1" force="$2" mode="$3"
+  local agents="$ROOT/AGENTS.md" claude="$ROOT/CLAUDE.md" tmpl
+  tmpl="$(first_of "$CONV/templates/AGENTS.md" "$HERE/templates/AGENTS.md")"
+
+  # personalization — installed beasts only, so the doc never names a tool that isn't here
+  AG_OWNER="$OWNER"; AG_ROOT="$(homelit "$ROOT")"; AG_CONV="$(basename "$CONV")"
+  AG_BEASTS='- `grimnir`'; local b
+  for b in huginn muninn geri freki; do have "$b" && AG_BEASTS="$AG_BEASTS, \`$b\`"; done
+
+  printf "\n  ${BD}agent doc${X} ${DIM}(seat an operator at the estate root)${X}\n"
+  AGENT_WROTE=0
+
+  if [ "$mode" = agents ] || [ "$mode" = both ]; then
+    if [ -z "$tmpl" ]; then
+      printf "    ${R}✗ no AGENTS.md template found${X} ${DIM}(looked in %s/templates + bundled)${X}\n" "$(homelit "$CONV")"
+    elif [ -f "$agents" ] && [ "$force" != 1 ]; then
+      printf "    ${Y}∙${X} AGENTS.md ${DIM}exists — leaving it (--force to overwrite)${X}\n"
+    elif [ "$dry" = 1 ]; then
+      printf "    ${C}+ would write${X} AGENTS.md ${DIM}(%s)${X}\n" "$(homelit "$agents")"; AGENT_WROTE=1
+    elif render_agents "$tmpl" > "$agents"; then
+      printf "    ${G}✓ wrote${X}    AGENTS.md ${DIM}(%s)${X}\n" "$(homelit "$agents")"; AGENT_WROTE=1
+    else
+      printf "    ${R}✗ failed to write AGENTS.md${X}\n"
+    fi
+  fi
+
+  if [ "$mode" = claude ] || [ "$mode" = both ]; then
+    if [ -f "$claude" ] && grep -qx '@AGENTS.md' "$claude" 2>/dev/null; then
+      printf "    ${G}✓${X} CLAUDE.md ${DIM}already → @AGENTS.md${X}\n"
+    elif [ -f "$claude" ] && [ "$force" != 1 ]; then
+      printf "    ${Y}∙${X} CLAUDE.md ${DIM}exists (custom) — leaving it (--force to overwrite)${X}\n"
+    elif [ "$dry" = 1 ]; then
+      printf "    ${C}+ would write${X} CLAUDE.md ${DIM}→ @AGENTS.md${X}\n"; AGENT_WROTE=1
+    elif printf '@AGENTS.md\n' > "$claude"; then
+      printf "    ${G}✓ wrote${X}    CLAUDE.md ${DIM}→ @AGENTS.md${X}\n"; AGENT_WROTE=1
+    else
+      printf "    ${R}✗ failed to write CLAUDE.md${X}\n"
+    fi
+  fi
+}
+
 # ── summon (clone-or-update every owned repo into the estate) ─────────────
 # Exemptions govern management (what the beasts touch), NOT presence — summon
 # deliberately brings down everything you own; it never consults is_exempt.
 cmd_summon(){
   is_help "${1:-}" && { help_summon; return 0; }
   need_deps || return 1
-  local UPDATE=0 DRY=0 SKIP_ARCHIVED=0 SKIP_FORKS=0 LIMIT=1000
+  local UPDATE=0 DRY=0 SKIP_ARCHIVED=0 SKIP_FORKS=0 LIMIT=1000 AGENT="" FORCE=0
   while [ $# -gt 0 ]; do case "$1" in
     --update|-u)     UPDATE=1;;
     --dry-run|-n)    DRY=1;;
     --skip-archived) SKIP_ARCHIVED=1;;
     --skip-forks)    SKIP_FORKS=1;;
     --limit)         shift; LIMIT="${1:-1000}";;
+    --agent)         AGENT=both;;
+    --agent=*)       AGENT="${1#--agent=}";;
+    --force|-f)      FORCE=1;;
     -*)              printf "  ${Y}ignoring unknown option: %s${X}\n" "$1";;
     *)               printf "  ${Y}ignoring unexpected argument: %s${X}\n" "$1";;
   esac; shift; done
+  case "$AGENT" in
+    ""|agents|claude|both) : ;;
+    *) printf "  ${Y}unknown --agent mode: %s (use agents|claude|both) — assuming both${X}\n" "$AGENT"; AGENT=both;;
+  esac
   need_owner || return 1
 
   printf "\n  ${BD}grimnir summon${X}  ${DIM}· gather the realms · %s → %s%s${X}\n" \
@@ -292,6 +355,9 @@ cmd_summon(){
     fi
   done <<< "$rows"
 
+  # --agent: after the repos are on disk, seat an operator at the estate root
+  [ -n "$AGENT" ] && write_agent_doc "$DRY" "$FORCE" "$AGENT"
+
   # summary — wording adapts to dry-run; segments only shown when meaningful
   local cverb; cverb="$([ "$DRY" = 1 ] && echo 'to clone' || echo 'cloned')"
   printf "\n  ${BD}%d owned${X} ${DIM}·${X} ${G}%d %s${X}" "$owned" "$cloned" "$cverb"
@@ -304,6 +370,7 @@ cmd_summon(){
   fi
   [ "$filtered" -gt 0 ] && printf " ${DIM}·${X} ${DIM}%d filtered${X}" "$filtered"
   [ "$prob" -gt 0 ] && printf " ${DIM}·${X} ${R}%d problem%s${X}" "$prob" "$(plural "$prob")"
+  [ -n "$AGENT" ] && [ "${AGENT_WROTE:-0}" = 1 ] && printf " ${DIM}·${X} agent doc %s" "$([ "$DRY" = 1 ] && echo planned || echo written)"
   printf "\n"
   [ "$UPDATE" = 0 ] && [ "$present" -gt 0 ] && \
     printf "  ${DIM}%d repo%s already present, left untouched — 'grimnir summon --update' pulls them too${X}\n" "$present" "$(plural "$present")"
@@ -311,7 +378,7 @@ cmd_summon(){
 }
 
 help_summon(){
-  printf "\n  ${BD}grimnir summon${X} [--update] [--skip-archived] [--skip-forks] [--limit N] [--dry-run]\n\n"
+  printf "\n  ${BD}grimnir summon${X} [--update] [--agent[=agents|claude|both]] [--force] [--skip-archived] [--skip-forks] [--limit N] [--dry-run]\n\n"
   printf "  Gather the realms — clone every repo you own into the estate. Lists all your repos\n"
   printf "  (${DIM}gh repo list${X}), clones any that aren't in ${BD}\$GRIMNIR_ROOT${X} yet, and by default leaves\n"
   printf "  the ones already there untouched. Cloning is additive and safe, so there's no\n"
@@ -320,10 +387,18 @@ help_summon(){
   printf "  ${BD}Options${X}\n"
   printf "    --update, -u     also pull repos already present — fast-forward only, skipping any\n"
   printf "                     with uncommitted changes ${DIM}(mirrors 'huginn sync')${X}\n"
+  printf "    --agent[=mode]   after summoning, seat an operator at the estate root: write an\n"
+  printf "                     ${BD}AGENTS.md${X} (personalized to your owner/root/installed beasts) plus a\n"
+  printf "                     ${BD}CLAUDE.md${X} ${DIM}@AGENTS.md${X} shim so Claude Code picks it up too. ${DIM}mode:${X}\n"
+  printf "                     ${DIM}agents (canonical only) · claude (shim only) · both (default)${X}\n"
+  printf "    --force, -f      overwrite an existing AGENTS.md / custom CLAUDE.md ${DIM}(with --agent)${X}\n"
   printf "    --skip-archived  don't clone archived repos\n"
   printf "    --skip-forks     don't clone forks\n"
   printf "    --limit N        cap how many repos to list ${DIM}(default: 1000)${X}\n"
-  printf "    --dry-run, -n    print the plan — what would be cloned/pulled — and change nothing\n\n"
+  printf "    --dry-run, -n    print the plan — what would be cloned/pulled/written — and change nothing\n\n"
+  printf "  ${DIM}The agent doc is idempotent: an existing AGENTS.md is never clobbered without --force —\n"
+  printf "  by then it's your hand-tuned operating doc. The template is grimnir's bundled\n"
+  printf "  templates/AGENTS.md, overridable at <conventions>/templates/AGENTS.md.${X}\n\n"
   printf "  ${DIM}Exemptions govern management, not presence: summon brings down everything you own,\n"
   printf "  even repos the ravens/wolves skip when acting (a profile repo, creative repos). Network —\n"
   printf "  one 'gh repo list', then one clone or pull per repo.${X}\n\n"
@@ -637,7 +712,7 @@ cmd_help(){
   printf "  ${DIM}provision${X}\n"
   printf "    ${BD}rally${X} [--update]       assemble the pack — clone the four beasts + wire them up\n"
   printf "    ${BD}install${X} [--force]      symlink the present beasts into %s\n" "$(homelit "$BIN")"
-  printf "    ${BD}summon${X} [--update]      clone every repo you own into the estate ${DIM}(--update pulls existing)${X}\n"
+  printf "    ${BD}summon${X} [--agent]       clone every repo you own into the estate ${DIM}(--agent seats an operator)${X}\n"
   printf "  ${DIM}configure${X}\n"
   printf "    ${BD}config${X} [set|edit]      the shared estate config — owner · root · exemptions\n"
   printf "  ${DIM}inspect the pack${X}\n"
