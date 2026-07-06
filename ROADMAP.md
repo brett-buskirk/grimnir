@@ -16,7 +16,7 @@ _What's planned for grimnir — check items off as they ship. Each phase is a ve
       alerts, fresh drift, cruft crossing a threshold), diffed against a saved snapshot.
 - [x] **v0.6.0 — `schedule` + CI & docs.** Wire the routines via cron (a daily `grimnir brief`, opt-in
       weekly `muninn digest` / daily `geri hunt`); `shellcheck` gate; consolidated README.
-- [ ] **v1.0.0 — Release.** Symlink install to `~/.local/bin/grimnir`, tagged `v1.0.0`, Definition of
+- [x] **v1.0.0 — Release.** Symlink install to `~/.local/bin/grimnir`, tagged `v1.0.0`, Definition of
       Done met.
 
 ## Deferred (do NOT build before v1.0)
