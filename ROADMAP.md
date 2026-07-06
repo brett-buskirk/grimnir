@@ -19,10 +19,14 @@ _What's planned for grimnir — check items off as they ship. Each phase is a ve
 - [x] **v1.0.0 — Release.** Symlink install to `~/.local/bin/grimnir`, tagged `v1.0.0`, Definition of
       Done met.
 
-## Deferred (do NOT build before v1.0)
+## Deferred — the backlog
 
-- **A live TUI dashboard** — the true high seat, a refreshing whole-estate panel.
-- **`--json` / report export** — HTML/Markdown estate report drawing all beasts.
+v1.0 shipped, so these post-1.0 ideas are now tracked as issues under the
+[`Backlog`](https://github.com/brett-buskirk/grimnir/milestone/8) milestone, to pick up as time allows:
+
+- **A live TUI dashboard** — the true high seat, a refreshing whole-estate panel. → #12
+- **`--json` / report export** — HTML/Markdown estate report drawing all beasts. → #13
 - **Remediation flows** — `grimnir tend`: survey → propose fixes (huginn `doctor --fix`, freki
-  `--apply`, geri PRs) behind a single guarded confirm.
-- **Going public** — like the rest of the pack, once solid.
+  `--apply`, geri PRs) behind a single guarded confirm. → #14
+
+**Going public** — done: public as of v1.0.0.
