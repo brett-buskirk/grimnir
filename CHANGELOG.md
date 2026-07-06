@@ -6,6 +6,13 @@ All notable changes to grimnir are documented here. The format is based on
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-06
+
+The high seat. One command center over the four beasts (huginn/muninn/geri/freki) — it consolidates
+their views, provisions the whole pack, and runs the routines; it never merely aliases them. Like the
+rest of the pack it stores nothing it can derive, degrades gracefully when a beast is absent, and
+falls back to huginn's config so a huginn user gets a working grimnir with zero setup.
+
 ### Added
 - Initial scaffold.
 - **`survey`** — the flagship consolidated estate briefing: present (`huginn status` + `huginn

@@ -4,7 +4,7 @@
 # masked one" — sees into all realms from Hliðskjálf at once. The point is consolidation, not
 # aliasing: every command here does something none of the four beasts can do alone.
 #
-#   grimnir survey | help
+#   grimnir survey | brief | summon | rally | install | config | schedule | doctor | version
 #   run 'grimnir help' for the menu, or 'grimnir <command> help' for per-command detail.
 # shellcheck disable=SC2059  # color vars are fixed ANSI codes, deliberately embedded in format strings
 set -uo pipefail
