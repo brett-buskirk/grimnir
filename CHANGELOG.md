@@ -62,6 +62,13 @@ All notable changes to grimnir are documented here. The format is based on
   window; `--no-save` peeks without advancing the baseline. State:
   `${XDG_STATE_HOME:-~/.local/state}/grimnir/brief-state` — built to run each morning from cron.
 - Two-level help: `grimnir help` overview + `grimnir <command> help` per-command detail.
+- **`schedule`** — cron the pack's routines. `schedule install` adds a daily `grimnir brief` (default
+  07:00, `--at HH:MM` to change) whose output appends to a logfile under
+  `${XDG_STATE_HOME:-~/.local/state}/grimnir/` (cron has no terminal); `--weekly-digest` and
+  `--daily-hunt` add a weekly `muninn digest` and daily `geri hunt`. `schedule show` lists the current
+  entries; `schedule remove` deletes them. grimnir manages only its own delimited crontab block, so
+  your other cron jobs are never touched; `--dry-run` previews the lines. Idempotent — re-installing
+  replaces grimnir's block rather than duplicating it.
 - **CI** — a `shellcheck` gate (plus `bash -n`) on every push and PR. The script is shellcheck-clean;
   the pack's intentional idioms (color vars in `printf` format strings → SC2059, dynamic `source` →
   SC1090, the literal `$HOME` in `homelit` → SC2016, the shared `M` palette slot → SC2034) are
