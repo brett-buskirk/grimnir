@@ -14,6 +14,10 @@ commands the ravens and wolves. `grimnir` is that seat.
 grimnir's value is consolidation, not aliasing — every command marshals two or more beasts (or
 governs the pack itself) into a view none of them can produce alone.
 
+<p align="center">
+  <img src="docs/grimnir-survey.png" alt="grimnir survey — one consolidated estate briefing: present state, what shipped, threats, and cruft across the whole estate, with a synthesized top-line headline" width="760">
+</p>
+
 > **Note:** config-driven like the rest of the pack — falls back to huginn's config (owner, root)
 > when its own is unset, so a huginn user gets a working grimnir with zero setup. See the
 > [Roadmap](ROADMAP.md) for what's next.
