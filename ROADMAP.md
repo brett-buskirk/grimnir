@@ -9,9 +9,12 @@ _What's planned for grimnir — check items off as they ship. Each phase is a ve
 - [x] **v0.2.0 — `summon`.** Clone-or-update every owned repo into the estate.
 - [x] **v0.3.0 — Pack governance.** `install` (symlink beasts + dep check + config scaffold),
       `rally` (fetch the beasts + wire them up), `config`, `doctor` (self) + `version`.
-- [ ] **v0.4.0 — `brief` / `morning`.** A lean daily digest — the deltas worth your attention (new
+- [ ] **v0.4.0 — `summon --agent`.** Seat an agent in the estate: render a bundled, agent-agnostic
+      `AGENTS.md` (+ a `CLAUDE.md` `@AGENTS.md` shim) at `$ROOT`, personalized to the owner/root/installed
+      beasts. Optional, idempotent (never clobbers an existing doc; `--force` to overwrite), `--dry-run` aware.
+- [ ] **v0.5.0 — `brief` / `morning`.** A lean daily digest — the deltas worth your attention (new
       alerts, fresh drift, cruft crossing a threshold).
-- [ ] **v0.5.0 — `schedule` + CI & docs.** Wire the routines via cron (weekly `muninn digest`, daily
+- [ ] **v0.6.0 — `schedule` + CI & docs.** Wire the routines via cron (weekly `muninn digest`, daily
       `geri hunt`, a `grimnir brief`); `shellcheck` gate; consolidated README.
 - [ ] **v1.0.0 — Release.** Symlink install to `~/.local/bin/grimnir`, tagged `v1.0.0`, Definition of
       Done met.

@@ -46,4 +46,11 @@ All notable changes to grimnir are documented here. The format is based on
   (or huginn-config fallback), whether `$GRIMNIR_BIN` is on `$PATH`, and a per-member table: in the
   estate · version · on `PATH` and linked back to the estate. Flags a symlink pointing elsewhere
   (repair: `install --force`) or a beast missing entirely (fetch: `rally`).
+- **`summon --agent`** — seat an operator at the estate root. After summoning, render an
+  agent-agnostic `AGENTS.md` steward doc (personalized to `$OWNER`, `$ROOT`, the conventions dir, and
+  the *installed* beasts only — so it never names a tool that isn't there) plus a one-line `CLAUDE.md`
+  (`@AGENTS.md`) shim for zero-config Claude Code pickup. `--agent=agents|claude|both` (default
+  `both`). Idempotent and safe — an existing `AGENTS.md` or custom `CLAUDE.md` is never clobbered
+  without `--force`; `--dry-run` shows the plan. Template is grimnir's bundled `templates/AGENTS.md`
+  (grimnir's first `templates/` dir), overridable at `<conventions>/templates/AGENTS.md`.
 - Two-level help: `grimnir help` overview + `grimnir <command> help` per-command detail.
