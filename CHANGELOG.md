@@ -62,3 +62,7 @@ All notable changes to grimnir are documented here. The format is based on
   window; `--no-save` peeks without advancing the baseline. State:
   `${XDG_STATE_HOME:-~/.local/state}/grimnir/brief-state` — built to run each morning from cron.
 - Two-level help: `grimnir help` overview + `grimnir <command> help` per-command detail.
+- **CI** — a `shellcheck` gate (plus `bash -n`) on every push and PR. The script is shellcheck-clean;
+  the pack's intentional idioms (color vars in `printf` format strings → SC2059, dynamic `source` →
+  SC1090, the literal `$HOME` in `homelit` → SC2016, the shared `M` palette slot → SC2034) are
+  suppressed with scoped directives, matching geri/freki.

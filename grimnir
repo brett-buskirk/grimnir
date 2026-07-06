@@ -6,16 +6,19 @@
 #
 #   grimnir survey | help
 #   run 'grimnir help' for the menu, or 'grimnir <command> help' for per-command detail.
+# shellcheck disable=SC2059  # color vars are fixed ANSI codes, deliberately embedded in format strings
 set -uo pipefail
 SELF="$(readlink -f "$0" 2>/dev/null || echo "$0")"; HERE="$(cd "$(dirname "$SELF")" && pwd)"
 
 # ── configuration — env  >  config file  >  huginn's config  >  smart defaults ────────────
 CONFIG="${GRIMNIR_CONFIG:-${XDG_CONFIG_HOME:-$HOME/.config}/grimnir/config}"
 for _v in ROOT OWNER; do eval "_env_$_v=\${GRIMNIR_$_v-}"; done
+# shellcheck disable=SC1090
 [ -f "$CONFIG" ] && . "$CONFIG"
 
 # free config for huginn users — if GRIMNIR_* is unset, fall back to huginn's config
 HCONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/huginn/config"
+# shellcheck disable=SC1090
 [ -f "$HCONFIG" ] && . "$HCONFIG"
 
 ROOT="${_env_ROOT:-${GRIMNIR_ROOT:-${HUGINN_ROOT:-$HOME/github-repos}}}"
@@ -25,6 +28,7 @@ BIN="${GRIMNIR_BIN:-$HOME/.local/bin}"                 # where beast scripts get
 PACK_OWNER="${GRIMNIR_PACK_OWNER:-brett-buskirk}"      # canonical source of the beast repos (not necessarily the estate owner)
 BEASTS="huginn muninn geri freki"                      # the four beasts grimnir commands (grimnir itself is the seat)
 
+# shellcheck disable=SC2034  # M (magenta) is part of the shared huginn/muninn/geri/freki palette; unused in grimnir for now
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   R=$'\e[31m'; G=$'\e[32m'; Y=$'\e[33m'; C=$'\e[36m'; M=$'\e[35m'; DIM=$'\e[2m'; BD=$'\e[1m'; X=$'\e[0m'
 else R=; G=; Y=; C=; M=; DIM=; BD=; X=; fi
@@ -39,6 +43,7 @@ need_deps(){ local d; local -a miss=(); for d in git gh jq; do have "$d" || miss
 grab(){ [[ "$2" =~ $1 ]] && printf '%s' "${BASH_REMATCH[1]}" || printf ''; }
 first_of(){ local f; for f in "$@"; do [ -e "$f" ] && { printf '%s' "$f"; return 0; }; done; return 1; }  # your file, else the bundled one
 # collapse a leading $HOME back to the literal, so a written config reads like the beasts' configs
+# shellcheck disable=SC2016  # the literal '$HOME' is intentional — we want the token, not its value
 homelit(){ case "$1" in "$HOME"/*) printf '$HOME/%s' "${1#"$HOME"/}";; "$HOME") printf '$HOME';; *) printf '%s' "$1";; esac; }
 # write grimnir's config with detected defaults (shared by 'config init' and 'install')
 write_config(){
@@ -61,13 +66,13 @@ upsert_config(){
 # ── pack provisioning (shared by install & rally) ─────────────────────────
 # print the dep line; return non-zero if any of bash/git/gh/jq is missing
 deps_report(){
-  local d miss=0
+  local d bad=0
   printf "  ${BD}deps${X}  "
   for d in bash git gh jq; do
-    if have "$d"; then printf "${G}✓${X} %s  " "$d"; else printf "${R}✗ %s${X}  " "$d"; miss=1; fi
+    if have "$d"; then printf "${G}✓${X} %s  " "$d"; else printf "${R}✗ %s${X}  " "$d"; bad=1; fi
   done
   printf "\n"
-  return "$miss"
+  return "$bad"
 }
 # symlink one pack member's script into $BIN. Prints a status line; return buckets the outcome:
 #   0 linked (new) · 1 already linked · 2 absent (no repo) · 3 conflict (points elsewhere) · 4 failed
@@ -251,6 +256,7 @@ cmd_brief(){
 
   # load the prior snapshot (locals pre-declared so 'set -u' + a partial file are both safe)
   local GRIMNIR_BRIEF_TS="" GRIMNIR_BRIEF_ALERTS="" GRIMNIR_BRIEF_DEPS="" GRIMNIR_BRIEF_ACTIONS="" GRIMNIR_BRIEF_REAPABLE=""
+  # shellcheck disable=SC1090
   [ -f "$STATE" ] && . "$STATE"
   local prev_ts="$GRIMNIR_BRIEF_TS" prev_alerts="$GRIMNIR_BRIEF_ALERTS" prev_deps="$GRIMNIR_BRIEF_DEPS"
   local prev_actions="$GRIMNIR_BRIEF_ACTIONS" prev_reap="$GRIMNIR_BRIEF_REAPABLE"
@@ -375,6 +381,7 @@ write_agent_doc(){
 
   # personalization — installed beasts only, so the doc never names a tool that isn't here
   AG_OWNER="$OWNER"; AG_ROOT="$(homelit "$ROOT")"; AG_CONV="$(basename "$CONV")"
+  # shellcheck disable=SC2016  # literal markdown backticks, not command substitution
   AG_BEASTS='- `grimnir`'; local b
   for b in huginn muninn geri freki; do have "$b" && AG_BEASTS="$AG_BEASTS, \`$b\`"; done
 
