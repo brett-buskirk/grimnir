@@ -27,6 +27,7 @@ CONV="$ROOT/${GRIMNIR_CONVENTIONS:-${HUGINN_CONVENTIONS:-repo-conventions}}"   #
 BIN="${GRIMNIR_BIN:-$HOME/.local/bin}"                 # where beast scripts get symlinked
 PACK_OWNER="${GRIMNIR_PACK_OWNER:-brett-buskirk}"      # canonical source of the beast repos (not necessarily the estate owner)
 BEASTS="huginn muninn geri freki"                      # the four beasts grimnir commands (grimnir itself is the seat)
+SCHED_BEGIN="# >>> grimnir schedule >>>"; SCHED_END="# <<< grimnir schedule <<<"   # the crontab block grimnir manages
 
 # shellcheck disable=SC2034  # M (magenta) is part of the shared huginn/muninn/geri/freki palette; unused in grimnir for now
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
@@ -359,6 +360,112 @@ help_brief(){
   printf "                      the same point next time)\n\n"
   printf "  ${DIM}State: \${XDG_STATE_HOME:-~/.local/state}/grimnir/brief-state. Network — a geri hunt +\n"
   printf "  freki reap + muninn digest, the same cost class as survey.${X}\n\n"
+}
+
+# ── schedule (cron the pack's routines) ───────────────────────────────────
+# emit the crontab block grimnir manages. A daily brief always; digest/hunt opt-in.
+# $PATH is written literally so cron's shell prepends $BIN at run time (cron's PATH is bare).
+schedule_block(){
+  local mm="$1" hh="$2" digest="$3" hunt="$4" sd="$5"
+  local pfx="PATH=$BIN:\$PATH"
+  printf '%s\n' "$SCHED_BEGIN"
+  printf "%s\n" "# managed by 'grimnir schedule' — edit via that, not by hand"
+  printf '%d %d * * *  %s %s/grimnir brief >> %s/brief.log 2>&1\n' "$mm" "$hh" "$pfx" "$BIN" "$sd"
+  [ "$digest" = 1 ] && printf '0 8 * * 1  %s %s/muninn digest >> %s/digest.log 2>&1\n' "$pfx" "$BIN" "$sd"
+  [ "$hunt" = 1 ]   && printf '0 6 * * *  %s %s/geri hunt >> %s/hunt.log 2>&1\n' "$pfx" "$BIN" "$sd"
+  printf '%s\n' "$SCHED_END"
+}
+# print only the runnable (non-comment) lines of grimnir's current block, one per line
+schedule_current(){ crontab -l 2>/dev/null | sed -n "/^$SCHED_BEGIN$/,/^$SCHED_END$/p"; }
+
+cmd_schedule(){
+  is_help "${1:-}" && { help_schedule; return 0; }
+  local sub="${1:-show}"; [ $# -gt 0 ] && shift
+  case "$sub" in
+    show)    schedule_show;;
+    install) schedule_install "$@";;
+    remove)  schedule_remove "$@";;
+    *)       printf "  ${R}unknown schedule subcommand: %s${X} ${DIM}(show · install · remove)${X}\n" "$sub"; return 1;;
+  esac
+}
+
+schedule_show(){
+  have crontab || { printf "  ${R}crontab not found${X} ${DIM}(install cron to schedule routines)${X}\n"; return 1; }
+  printf "\n  ${BD}grimnir schedule${X}  ${DIM}· the pack's cron routines${X}\n\n"
+  local block; block="$(schedule_current)"
+  if [ -z "$block" ]; then
+    printf "  ${DIM}nothing scheduled — 'grimnir schedule install' sets up a daily brief${X}\n\n"; return 0
+  fi
+  printf '%s\n' "$block" | grep -v '^#' | while IFS= read -r l; do [ -n "$l" ] && printf "    ${C}%s${X}\n" "$l"; done
+  printf "\n  ${DIM}manage with 'grimnir schedule install' / 'grimnir schedule remove'${X}\n\n"
+}
+
+schedule_install(){
+  have crontab || { printf "  ${R}crontab not found${X} ${DIM}(install cron to schedule routines)${X}\n"; return 1; }
+  local DRY=0 DIGEST=0 HUNT=0 hh=7 mm=0 at
+  while [ $# -gt 0 ]; do case "$1" in
+    --dry-run|-n)    DRY=1;;
+    --weekly-digest) DIGEST=1;;
+    --daily-hunt)    HUNT=1;;
+    --at)            shift; at="${1:-}"
+                     if [[ "$at" =~ ^([0-9]{1,2}):([0-9]{2})$ ]]; then
+                       hh=$((10#${BASH_REMATCH[1]})); mm=$((10#${BASH_REMATCH[2]}))
+                       { [ "$hh" -gt 23 ] || [ "$mm" -gt 59 ]; } && { printf "  ${Y}--at out of range (%s) — using 07:00${X}\n" "$at"; hh=7; mm=0; }
+                     else printf "  ${Y}--at wants HH:MM, e.g. 07:00 — using 07:00${X}\n"; hh=7; mm=0; fi;;
+    -*)              printf "  ${Y}ignoring unknown option: %s${X}\n" "$1";;
+  esac; shift; done
+
+  local STATEDIR="${XDG_STATE_HOME:-$HOME/.local/state}/grimnir" block
+  block="$(schedule_block "$mm" "$hh" "$DIGEST" "$HUNT" "$STATEDIR")"
+
+  printf "\n  ${BD}grimnir schedule install${X}  ${DIM}· cron the pack's routines%s${X}\n\n" "$([ "$DRY" = 1 ] && echo ' · dry-run')"
+  printf '%s\n' "$block" | grep -v '^#' | while IFS= read -r l; do [ -n "$l" ] && printf "    ${C}%s${X}\n" "$l"; done
+
+  if [ "$DRY" = 1 ]; then
+    printf "\n  ${DIM}[dry-run] crontab unchanged — drop --dry-run to install.${X}\n\n"; return 0
+  fi
+
+  mkdir -p "$STATEDIR"   # so the log redirects have somewhere to write
+  if { crontab -l 2>/dev/null | sed "/^$SCHED_BEGIN$/,/^$SCHED_END$/d"; printf '%s\n' "$block"; } | crontab -; then
+    printf "\n  ${G}✓${X} installed to your crontab ${DIM}· output → %s/*.log${X}\n" "$(homelit "$STATEDIR")"
+    printf "  ${DIM}jobs fire only while the cron service runs — on WSL/containers: 'sudo service cron start'.${X}\n\n"
+  else
+    printf "\n  ${R}✗ crontab update failed${X}\n\n"; return 1
+  fi
+}
+
+schedule_remove(){
+  have crontab || { printf "  ${R}crontab not found${X}\n"; return 1; }
+  local DRY=0 a; for a in "$@"; do case "$a" in --dry-run|-n) DRY=1;; esac; done
+  printf "\n  ${BD}grimnir schedule remove${X}%s\n\n" "$([ "$DRY" = 1 ] && echo '  ·  dry-run')"
+  local block; block="$(schedule_current)"
+  if [ -z "$block" ]; then printf "  ${DIM}nothing scheduled by grimnir${X}\n\n"; return 0; fi
+  printf '%s\n' "$block" | grep -v '^#' | while IFS= read -r l; do [ -n "$l" ] && printf "    ${DIM}%s${X}\n" "$l"; done
+  if [ "$DRY" = 1 ]; then printf "\n  ${DIM}[dry-run] crontab unchanged.${X}\n\n"; return 0; fi
+  if crontab -l 2>/dev/null | sed "/^$SCHED_BEGIN$/,/^$SCHED_END$/d" | crontab -; then
+    printf "\n  ${G}✓${X} removed grimnir's cron lines ${DIM}(your other cron jobs untouched)${X}\n\n"
+  else
+    printf "\n  ${R}✗ crontab update failed${X}\n\n"; return 1
+  fi
+}
+
+help_schedule(){
+  printf "\n  ${BD}grimnir schedule${X} [show | install [opts] | remove] ${DIM}[--dry-run]${X}\n\n"
+  printf "  Cron the pack's routines so they run on their own. By default ${BD}install${X} adds one job —\n"
+  printf "  a daily ${BD}grimnir brief${X} — whose output appends to a logfile under\n"
+  printf "  ${DIM}\${XDG_STATE_HOME:-~/.local/state}/grimnir/${X} (cron has no terminal, so output goes to a\n"
+  printf "  file, not your screen). grimnir manages only its own block in your crontab, delimited by\n"
+  printf "  ${DIM}'%s'${X} markers — your other cron jobs are never touched.\n\n" "$SCHED_BEGIN"
+  printf "  ${BD}Subcommands${X}\n"
+  printf "    show ${DIM}(default)${X}    print grimnir's current cron entries\n"
+  printf "    install          add them ${DIM}(idempotent — replaces grimnir's existing block)${X}\n"
+  printf "    remove           delete grimnir's block, leaving the rest of your crontab intact\n\n"
+  printf "  ${BD}install options${X}\n"
+  printf "    --at HH:MM        time of day for the daily brief ${DIM}(default 07:00)${X}\n"
+  printf "    --weekly-digest   also schedule a weekly ${BD}muninn digest${X} ${DIM}(Mondays 08:00)${X}\n"
+  printf "    --daily-hunt      also schedule a daily ${BD}geri hunt${X} ${DIM}(06:00)${X}\n"
+  printf "    --dry-run, -n     print the crontab lines and change nothing\n\n"
+  printf "  ${DIM}Needs the 'crontab' command; jobs fire only while the cron service is running.${X}\n\n"
 }
 
 # ── agent doc (seat an operator at the estate root — summon --agent) ──────
@@ -860,6 +967,7 @@ cmd_help(){
   printf "    ${BD}summon${X} [--agent]       clone every repo you own into the estate ${DIM}(--agent seats an operator)${X}\n"
   printf "  ${DIM}configure${X}\n"
   printf "    ${BD}config${X} [set|edit]      the shared estate config — owner · root · exemptions\n"
+  printf "    ${BD}schedule${X} [install]     cron a daily brief to a logfile ${DIM}(+ opt-in digest / hunt)${X}\n"
   printf "  ${DIM}inspect the pack${X}\n"
   printf "    ${BD}doctor${X}                 pack health — installed · on PATH · linked · current\n"
   printf "    ${BD}version${X}                every beast's version, at a glance\n"
@@ -878,6 +986,7 @@ case "${1:-help}" in
   brief|morning) shift; cmd_brief "$@";;
   summon)  shift; cmd_summon "$@";;
   config)  shift; cmd_config "$@";;
+  schedule) shift; cmd_schedule "$@";;
   install) shift; cmd_install "$@";;
   rally)   shift; cmd_rally "$@";;
   doctor)  shift; cmd_doctor "$@";;

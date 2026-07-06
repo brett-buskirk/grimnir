@@ -50,6 +50,7 @@ provision
   summon [--agent]       clone every repo you own into the estate (--agent seats an operator)
 configure
   config [set|edit]      the shared estate config — owner · root · exemptions
+  schedule [install]     cron a daily brief to a logfile (+ opt-in digest / hunt)
 inspect the pack
   doctor                 pack health — installed · on PATH · linked · current
   version                every beast's version, at a glance
@@ -99,6 +100,10 @@ Run **`grimnir <command> help`** for details and options on any command.
   deps, `gh` auth, config, `$PATH`, and per-beast whether it's in the estate, on `PATH`, and linked
   back to the estate — flagging a stray symlink (repair with `install --force`) or a missing beast
   (fetch with `rally`).
+- **`schedule`** crons the routines so they run on their own — by default a daily `grimnir brief`
+  whose output appends to a logfile under `${XDG_STATE_HOME:-~/.local/state}/grimnir/` (cron has no
+  terminal). It manages only its own delimited block in your crontab — your other cron jobs are never
+  touched — and `--weekly-digest` / `--daily-hunt` add those routines too.
 - **Graceful degradation is the whole design** — grimnir is useful with only one beast installed,
   and gets more useful as you add the rest.
 - **Respects `NO_COLOR`** and non-TTY output.
@@ -112,14 +117,18 @@ file: `${XDG_CONFIG_HOME:-~/.config}/grimnir/config` (override with `GRIMNIR_CON
 |---|---|---|
 | `GRIMNIR_OWNER` | `HUGINN_OWNER`, else your `gh` login | GitHub owner of the estate repos |
 | `GRIMNIR_ROOT` | `HUGINN_ROOT`, else `~/github-repos` | directory of repos to manage |
+| `GRIMNIR_BIN` | `~/.local/bin` | where `install` / `rally` symlink the beasts |
+| `GRIMNIR_PACK_OWNER` | `brett-buskirk` | canonical source `rally` clones the beasts from |
+| `GRIMNIR_CONVENTIONS` | `repo-conventions` | dir under the root with `exemptions.json` |
 
 grimnir doesn't need its own config to be useful — if `~/.config/huginn/config` exists, it's used
-automatically.
+automatically. `NO_COLOR` and non-TTY output are respected everywhere.
 
 ## Roadmap
 
-The phased build-out — a daily `brief` of the deltas worth your attention, and scheduled routines —
-is tracked in [ROADMAP.md](ROADMAP.md).
+survey · brief · summon (+ `--agent`) · rally · install · config · schedule · doctor · version are
+all shipped; the phased build-out and what's left (the v1.0.0 release) is tracked in
+[ROADMAP.md](ROADMAP.md).
 
 ## License
 

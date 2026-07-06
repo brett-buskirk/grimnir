@@ -14,8 +14,8 @@ _What's planned for grimnir — check items off as they ship. Each phase is a ve
       beasts. Optional, idempotent (never clobbers an existing doc; `--force` to overwrite), `--dry-run` aware.
 - [x] **v0.5.0 — `brief` / `morning`.** A lean daily digest — the deltas worth your attention (new
       alerts, fresh drift, cruft crossing a threshold), diffed against a saved snapshot.
-- [ ] **v0.6.0 — `schedule` + CI & docs.** Wire the routines via cron (weekly `muninn digest`, daily
-      `geri hunt`, a `grimnir brief`); `shellcheck` gate; consolidated README.
+- [x] **v0.6.0 — `schedule` + CI & docs.** Wire the routines via cron (a daily `grimnir brief`, opt-in
+      weekly `muninn digest` / daily `geri hunt`); `shellcheck` gate; consolidated README.
 - [ ] **v1.0.0 — Release.** Symlink install to `~/.local/bin/grimnir`, tagged `v1.0.0`, Definition of
       Done met.
 
