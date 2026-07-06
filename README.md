@@ -43,6 +43,7 @@ already present is left untouched; `rally --update` pulls the pack to latest.
 ```
 survey the estate
   survey                 one consolidated briefing — present · past · threats · cruft
+  brief                  the deltas since your last brief — a lean morning digest
 provision
   rally [--update]       assemble the pack — clone the four beasts + wire them up
   install [--force]      symlink the present beasts into ~/.local/bin
@@ -65,6 +66,12 @@ Run **`grimnir <command> help`** for details and options on any command.
   synthesizes a top-line `estate:` headline (dirty repos, compliance gaps, open alerts, reapable
   cruft) from their own output. A beast missing from `PATH` is skipped with a quiet note rather than
   failing the whole survey.
+- **`brief`** (alias `morning`) is the stateful counterpart — not the whole estate, just what
+  *changed* since you last looked. It diffs geri's alerts/deps/actions and freki's reapable count
+  against a saved snapshot (`▲` up / `▼` down), shows `muninn digest` for the window since your last
+  brief, and headlines what's new (`all quiet` when nothing moved). First run saves a baseline;
+  `--no-save` peeks without advancing it. State lives in
+  `${XDG_STATE_HOME:-~/.local/state}/grimnir/brief-state` — built to run each morning from cron.
 - **`summon`** gathers the realms — `gh repo list` every repo you own, clone the ones missing from
   `$GRIMNIR_ROOT`, and (with `--update`) fast-forward the ones already there (skipping any with
   uncommitted changes). Cloning is additive, so there's no `--apply` gate; updating is opt-in so a

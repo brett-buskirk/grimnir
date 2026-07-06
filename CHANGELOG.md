@@ -53,4 +53,12 @@ All notable changes to grimnir are documented here. The format is based on
   `both`). Idempotent and safe — an existing `AGENTS.md` or custom `CLAUDE.md` is never clobbered
   without `--force`; `--dry-run` shows the plan. Template is grimnir's bundled `templates/AGENTS.md`
   (grimnir's first `templates/` dir), overridable at `<conventions>/templates/AGENTS.md`.
+- **`brief`** (alias `morning`) — a lean daily digest of the *deltas* since your last brief, the
+  stateful counterpart to `survey`. Diffs geri's alerts/deps/actions and freki's reapable count
+  against a saved snapshot (`▲` up · `▼` down · `—` flat), runs `muninn digest` for the auto-computed
+  window since your last brief, and closes with a headline of what's new (`new alert`s · `fresh drift`
+  · `more reapable`), or `all quiet` when nothing moved. First run saves a baseline; a beast that's
+  absent is skipped and keeps its prior snapshot value. `--since <window>` overrides the shipped
+  window; `--no-save` peeks without advancing the baseline. State:
+  `${XDG_STATE_HOME:-~/.local/state}/grimnir/brief-state` — built to run each morning from cron.
 - Two-level help: `grimnir help` overview + `grimnir <command> help` per-command detail.
