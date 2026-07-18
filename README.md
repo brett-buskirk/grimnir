@@ -62,7 +62,8 @@ reference
   help                   this menu
 ```
 
-Run **`grimnir <command> help`** for details and options on any command.
+Run **`grimnir <command> help`** for details and options on any command. For a one-page reference to
+every command, option, and behavior, see the [**cheat sheet**](CHEATSHEET.md).
 
 ## How it works
 
